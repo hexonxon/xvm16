@@ -5,9 +5,9 @@
 extern crate rlibc;
 extern crate num;
 extern crate core;
-extern crate Hypervisor_framework;
+extern crate hypervisor_framework;
 
-use Hypervisor_framework::*;
+use hypervisor_framework::*;
 use rlibc::*;
 use std::sync::Arc;
 
@@ -125,28 +125,22 @@ struct vm_memory_mapping
     flags: hv_memory_flags_t,
 }
 
-unsafe impl Sync for vm_memory_region { }
-unsafe impl Send for vm_memory_region { }
-
 /**
  * VM state 
  *
  * HV framework internally creates a single global VM context for process which means 
  * that dynamic instanses of this struct don't really make sense.
  * However, rust makes it hard to work with globals, so we will have dynamic instance.
+ *
+ * TODO: drop trait to clean up and call hv_vm_destroy
+ * TODO: a better lookup for memory mappings
  */
 struct vm {
+    /** HV vcpu id */
     pub vcpu: hv_vcpuid_t,
-    pub memory: Vec<vm_memory_mapping>,
-}
 
-impl vm {
-    fn new() -> vm {
-        vm { 
-            vcpu: 0, 
-            memory: Vec::new(),
-        }
-    }
+    /** Mapped memory regions, simple vector for now */
+    pub memory: Vec<vm_memory_mapping>,
 }
 
 fn vm_valloc(size: usize) -> hv_uvaddr_t 
@@ -182,7 +176,7 @@ fn vm_create() -> vm
         assert!(res == HV_SUCCESS);
     }
 
-    return vm::new();
+    vm { vcpu: 0, memory: Vec::new() }
 }
 
 fn vm_vcpu_create() -> hv_vcpuid_t 

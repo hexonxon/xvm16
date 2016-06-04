@@ -6,5 +6,5 @@ authors = ["Evgeny Yakovlev <insoreiges@gmail.com>"]
 [dependencies]
 num = "0.1.0"
 rlibc = "1.0.0"
-Hypervisor_framework = { path = "../Hypervisor-framework-rs" }
-lazy_static = "0.2.1"
+#hypervisor_framework = { path = "../Hypervisor-framework-rs" }
+hypervisor_framework = { git = "https://github.com/warfish/Hypervisor-framework-rs" }
