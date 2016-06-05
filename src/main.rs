@@ -10,6 +10,8 @@ extern crate hypervisor_framework;
 use hypervisor_framework::*;
 use rlibc::*;
 use std::sync::Arc;
+use std::fs::*;
+use std::io::Read;
 
 extern "C" {
     fn valloc(size: usize) -> *mut ::std::os::raw::c_void;
@@ -176,7 +178,7 @@ fn vm_create() -> vm
         assert!(res == HV_SUCCESS);
     }
 
-    vm { vcpu: 0, memory: Vec::new() }
+    vm { vcpu: vm_vcpu_create(), memory: Vec::new() }
 }
 
 fn vm_vcpu_create() -> hv_vcpuid_t 
@@ -196,10 +198,35 @@ fn vm_run(vcpu: hv_vcpuid_t) -> hv_return_t
     }
 }
 
+fn vm_load_rom_image(path: &str) -> Arc<vm_memory_region>
+{
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(err) => panic!(err.to_string()),
+    };
+
+    let mut buffer = Vec::new();
+
+    let nbytes = match file.read_to_end(&mut buffer) {
+        Ok(usize) => usize,
+        Err(err) => panic!(err.to_string()),
+    };
+
+    println!("ROM size {} bytes", nbytes);
+
+    let reg = vm_alloc_memory_region(nbytes);
+    unsafe {
+        memcpy(reg.data as *mut u8, buffer.as_ptr(), nbytes);
+    }
+
+    return reg;
+}
+
 fn main() 
 {
     // Init VM for this process
     let mut vm = vm_create();
+    let vcpu = vm.vcpu;
 
     // Dump capabilities for debugging
     println!("HV_VMX_CAP_PINBASED:      {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_PINBASED));
@@ -208,8 +235,8 @@ fn main()
     println!("HV_VMX_CAP_ENTRY:         {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_ENTRY));
     println!("HV_VMX_CAP_EXIT:          {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_EXIT));
 
-    // Create 1MB real mode memory region 
-    let ram_region = vm_alloc_memory_region(0x100000);
+    // Create real mode memory region covering 640KB
+    let ram_region = vm_alloc_memory_region(0xA0000);
     vm_map_memory_region(&mut vm, 0x0, HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC, ram_region.clone());
 
     // Put software breakpoints everywhere
@@ -217,8 +244,23 @@ fn main()
         memset(ram_region.data as *mut u8, 0xCC, ram_region.size);
     }
 
+    // Load bios rom and map it
+    let rom_region = vm_load_rom_image("bios/bios.bin");
+    assert!((rom_region.size & 0xFFFF) == 0); // BIOS image should be aligned to real mode segment size
+
+    // First rom mapping goes to upper memory
+    vm_map_memory_region(&mut vm, 
+                         0x100000000u64.checked_sub(rom_region.size as u64).unwrap(), 
+                         HV_MEMORY_READ | HV_MEMORY_EXEC, 
+                         rom_region.clone());
+
+    // Second rom mapping goes right below first megabyte
+    vm_map_memory_region(&mut vm, 
+                         0x100000u64.checked_sub(rom_region.size as u64).unwrap(), 
+                         HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC, 
+                         rom_region.clone());
+
     // Create and init vcpu
-    let vcpu: hv_vcpuid_t = vm_vcpu_create();
     wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_PIN_BASED, check_capability(hv_vmx_capability_t::HV_VMX_CAP_PINBASED, 0
         /*| PIN_BASED_INTR*/
         /*| PIN_BASED_NMI*/
