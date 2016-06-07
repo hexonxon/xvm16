@@ -7,15 +7,15 @@ extern crate num;
 extern crate core;
 extern crate hypervisor_framework;
 
+mod qemudbg;
+mod vm;
+
 use hypervisor_framework::*;
 use rlibc::*;
 use std::sync::Arc;
 use std::fs::*;
 use std::io::Read;
 
-extern "C" {
-    fn valloc(size: usize) -> *mut ::std::os::raw::c_void;
-}
 
 fn rvmcs(vcpu: hv_vcpuid_t, field: hv_vmx_vmcs_regs) -> u64
 {
@@ -107,98 +107,7 @@ fn dump_guest_state(vcpu: hv_vcpuid_t)
     println!(" EXITQ = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_EXIT_QUALIFIC));
 }
 
-//
-// VM handling
-// 
-
-/**
- * VM allocated memory region
- */
-struct vm_memory_region 
-{
-    data: hv_uvaddr_t,
-    size: usize,
-}
-
-struct vm_memory_mapping
-{
-    region: Arc<vm_memory_region>,
-    base: hv_gpaddr_t,
-    flags: hv_memory_flags_t,
-}
-
-/**
- * VM state 
- *
- * HV framework internally creates a single global VM context for process which means 
- * that dynamic instanses of this struct don't really make sense.
- * However, rust makes it hard to work with globals, so we will have dynamic instance.
- *
- * TODO: drop trait to clean up and call hv_vm_destroy
- * TODO: a better lookup for memory mappings
- */
-struct vm {
-    /** HV vcpu id */
-    pub vcpu: hv_vcpuid_t,
-
-    /** Mapped memory regions, simple vector for now */
-    pub memory: Vec<vm_memory_mapping>,
-}
-
-fn vm_valloc(size: usize) -> hv_uvaddr_t 
-{
-    unsafe {
-        let va = valloc(size);
-        assert!(!va.is_null());
-        memset(va as *mut u8, 0, size);
-        return va;
-    }
-}
-
-fn vm_alloc_memory_region(size: usize) -> Arc<vm_memory_region>
-{
-    let va = vm_valloc(size);
-    Arc::new(vm_memory_region { size: size, data: va })
-}
-
-fn vm_map_memory_region(vm: &mut vm, base: hv_gpaddr_t, flags: hv_memory_flags_t, region: Arc<vm_memory_region>)
-{
-    unsafe {
-        let res = hv_vm_map(region.data, base, region.size, flags);
-        assert!(res == HV_SUCCESS);
-    }
-
-    vm.memory.push(vm_memory_mapping { region: region, base: base, flags: flags });
-}
-
-fn vm_create() -> vm
-{
-    unsafe {
-        let res = hv_vm_create(HV_VM_DEFAULT);
-        assert!(res == HV_SUCCESS);
-    }
-
-    vm { vcpu: vm_vcpu_create(), memory: Vec::new() }
-}
-
-fn vm_vcpu_create() -> hv_vcpuid_t 
-{
-    unsafe {
-        let mut vcpu: hv_vcpuid_t = 0;  
-        let res = hv_vcpu_create(&mut vcpu, HV_VCPU_DEFAULT);
-        assert!(res == HV_SUCCESS);
-        vcpu
-    }
-}
-
-fn vm_run(vcpu: hv_vcpuid_t) -> hv_return_t
-{
-    unsafe {
-        hv_vcpu_run(vcpu)
-    }
-}
-
-fn vm_load_rom_image(path: &str) -> Arc<vm_memory_region>
+fn load_rom_image(path: &str) -> Arc<vm::memory_region>
 {
     let mut file = match File::open(path) {
         Ok(file) => file,
@@ -214,7 +123,7 @@ fn vm_load_rom_image(path: &str) -> Arc<vm_memory_region>
 
     println!("ROM size {} bytes", nbytes);
 
-    let reg = vm_alloc_memory_region(nbytes);
+    let reg = vm::alloc_memory_region(nbytes);
     unsafe {
         memcpy(reg.data as *mut u8, buffer.as_ptr(), nbytes);
     }
@@ -225,7 +134,7 @@ fn vm_load_rom_image(path: &str) -> Arc<vm_memory_region>
 fn main() 
 {
     // Init VM for this process
-    let mut vm = vm_create();
+    let mut vm = vm::create();
     let vcpu = vm.vcpu;
 
     // Dump capabilities for debugging
@@ -236,8 +145,8 @@ fn main()
     println!("HV_VMX_CAP_EXIT:          {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_EXIT));
 
     // Create real mode memory region covering 640KB
-    let ram_region = vm_alloc_memory_region(0xA0000);
-    vm_map_memory_region(&mut vm, 0x0, HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC, ram_region.clone());
+    let ram_region = vm::alloc_memory_region(0xA0000);
+    vm::map_memory_region(&mut vm, 0x0, HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC, ram_region.clone());
 
     // Put software breakpoints everywhere
     unsafe {
@@ -245,22 +154,25 @@ fn main()
     }
 
     // Load bios rom and map it
-    let rom_region = vm_load_rom_image("bios/bios.bin");
+    let rom_region = load_rom_image("bios/bios.bin");
     assert!((rom_region.size & 0xFFFF) == 0); // BIOS image should be aligned to real mode segment size
 
     // First rom mapping goes to upper memory
-    vm_map_memory_region(&mut vm, 
+    vm::map_memory_region(&mut vm, 
                          0x100000000u64.checked_sub(rom_region.size as u64).unwrap(), 
                          HV_MEMORY_READ | HV_MEMORY_EXEC, 
                          rom_region.clone());
 
     // Second rom mapping goes right below first megabyte
-    vm_map_memory_region(&mut vm, 
+    vm::map_memory_region(&mut vm, 
                          0x100000u64.checked_sub(rom_region.size as u64).unwrap(), 
                          HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC, 
                          rom_region.clone());
 
-    // Create and init vcpu
+    // Register IO handlers
+    qemudbg::init(&mut vm);
+
+    // Init vcpu
     wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_PIN_BASED, check_capability(hv_vmx_capability_t::HV_VMX_CAP_PINBASED, 0
         /*| PIN_BASED_INTR*/
         /*| PIN_BASED_NMI*/
@@ -345,7 +257,7 @@ fn main()
 
     // Run vm loop
     loop {
-        let err = vm_run(vcpu);
+        let err = vm::run(vcpu);
         let exit_reason = rvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_RO_EXIT_REASON);
         let exit_qualif = rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_EXIT_QUALIFIC);
 
