@@ -1,6 +1,7 @@
 
 use hypervisor_framework::*;
 use std::sync::Arc;
+use rlibc::*;
 
 extern "C" {
     fn valloc(size: usize) -> *mut ::std::os::raw::c_void;
@@ -9,17 +10,58 @@ extern "C" {
 /**
  * VM allocated memory region
  */
+#[derive(Debug)]
 pub struct memory_region 
 {
     pub data: hv_uvaddr_t,
     pub size: usize,
 }
 
+impl memory_region {
+
+	pub fn read_bytes(&self, offset: usize, buf: &mut [u8]) -> usize {
+		if offset >= self.size {
+			return 0;
+		}
+
+		let toread = if offset + buf.len() > self.size {
+			self.size - offset
+		} else {
+			buf.len()
+		};
+
+		unsafe {
+			memcpy(buf.as_mut_ptr(), (self.data as *const u8).offset(offset as isize), toread);
+		}
+
+		toread
+	}
+
+	pub fn write_bytes(&self, offset: usize, buf: &[u8]) -> usize {
+		if offset >= self.size {
+			return 0;
+		}
+
+		let towrite = if offset + buf.len() > self.size {
+			self.size - offset
+		} else {
+			buf.len()
+		};
+
+		unsafe {
+			memcpy((self.data as *mut u8).offset(offset as isize), buf.as_ptr(), towrite);
+		}
+
+		towrite
+	}
+}
+
+#[derive(Debug)]
 pub struct memory_mapping
 {
-    region: Arc<memory_region>,
-    base: hv_gpaddr_t,
-    flags: hv_memory_flags_t,
+    pub region: Arc<memory_region>,
+    pub base: hv_gpaddr_t,
+    pub flags: hv_memory_flags_t,
 }
 
 pub trait io_handler_ops {
@@ -54,7 +96,8 @@ pub struct vm<'a> {
     pub io: Vec<io_handler<'a>>, 
 }
 
-pub fn alloc_pages(size: usize) -> hv_uvaddr_t 
+
+fn alloc_pages(size: usize) -> hv_uvaddr_t 
 {
     unsafe {
         let va = valloc(size);
@@ -77,6 +120,28 @@ pub fn map_memory_region(vm: &mut vm, base: hv_gpaddr_t, flags: hv_memory_flags_
     }
 
     vm.memory.push(memory_mapping { region: region, base: base, flags: flags });
+}
+
+pub fn find_memory_mapping<'a>(vm: &'a vm, addr: hv_gpaddr_t) -> Option<&'a memory_mapping>
+{
+	for i in &vm.memory {
+		if addr >= i.base && addr < i.base + i.region.size as u64 {
+			return Some(i);
+		}
+	}
+
+	return None;
+}
+
+pub fn read_guest_memory(vm: &vm, addr: hv_gpaddr_t, buf: &mut [u8]) -> usize 
+{
+	let mapping = match find_memory_mapping(vm, addr) {
+		Some(mapping) => mapping,
+		None => return 0,
+	};
+
+	assert!(addr >= mapping.base);
+	mapping.region.read_bytes((addr - mapping.base) as usize, buf)
 }
 
 pub fn create() -> vm<'static>
