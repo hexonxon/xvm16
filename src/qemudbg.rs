@@ -27,5 +27,5 @@ impl vm::io_handler_ops for qemudbg_dev {
 static QEMUDBG: qemudbg_dev = qemudbg_dev{};
 
 pub fn init(vm: &mut vm::vm) {
-	vm::register_io_handler(vm, &QEMUDBG, 0x402, 1);
+    vm::register_io_handler(vm, &QEMUDBG, 0x402, 1);
 }

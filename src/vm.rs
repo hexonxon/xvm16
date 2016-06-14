@@ -19,41 +19,41 @@ pub struct memory_region
 
 impl memory_region {
 
-	pub fn read_bytes(&self, offset: usize, buf: &mut [u8]) -> usize {
-		if offset >= self.size {
-			return 0;
-		}
+    pub fn read_bytes(&self, offset: usize, buf: &mut [u8]) -> usize {
+        if offset >= self.size {
+            return 0;
+        }
 
-		let toread = if offset + buf.len() > self.size {
-			self.size - offset
-		} else {
-			buf.len()
-		};
+        let toread = if offset + buf.len() > self.size {
+            self.size - offset
+        } else {
+            buf.len()
+        };
 
-		unsafe {
-			memcpy(buf.as_mut_ptr(), (self.data as *const u8).offset(offset as isize), toread);
-		}
+        unsafe {
+            memcpy(buf.as_mut_ptr(), (self.data as *const u8).offset(offset as isize), toread);
+        }
 
-		toread
-	}
+        toread
+    }
 
-	pub fn write_bytes(&self, offset: usize, buf: &[u8]) -> usize {
-		if offset >= self.size {
-			return 0;
-		}
+    pub fn write_bytes(&self, offset: usize, buf: &[u8]) -> usize {
+        if offset >= self.size {
+            return 0;
+        }
 
-		let towrite = if offset + buf.len() > self.size {
-			self.size - offset
-		} else {
-			buf.len()
-		};
+        let towrite = if offset + buf.len() > self.size {
+            self.size - offset
+        } else {
+            buf.len()
+        };
 
-		unsafe {
-			memcpy((self.data as *mut u8).offset(offset as isize), buf.as_ptr(), towrite);
-		}
+        unsafe {
+            memcpy((self.data as *mut u8).offset(offset as isize), buf.as_ptr(), towrite);
+        }
 
-		towrite
-	}
+        towrite
+    }
 }
 
 #[derive(Debug)]
@@ -124,24 +124,24 @@ pub fn map_memory_region(vm: &mut vm, base: hv_gpaddr_t, flags: hv_memory_flags_
 
 pub fn find_memory_mapping<'a>(vm: &'a vm, addr: hv_gpaddr_t) -> Option<&'a memory_mapping>
 {
-	for i in &vm.memory {
-		if addr >= i.base && addr < i.base + i.region.size as u64 {
-			return Some(i);
-		}
-	}
+    for i in &vm.memory {
+        if addr >= i.base && addr < i.base + i.region.size as u64 {
+            return Some(i);
+        }
+    }
 
-	return None;
+    return None;
 }
 
 pub fn read_guest_memory(vm: &vm, addr: hv_gpaddr_t, buf: &mut [u8]) -> usize 
 {
-	let mapping = match find_memory_mapping(vm, addr) {
-		Some(mapping) => mapping,
-		None => return 0,
-	};
+    let mapping = match find_memory_mapping(vm, addr) {
+        Some(mapping) => mapping,
+        None => return 0,
+    };
 
-	assert!(addr >= mapping.base);
-	mapping.region.read_bytes((addr - mapping.base) as usize, buf)
+    assert!(addr >= mapping.base);
+    mapping.region.read_bytes((addr - mapping.base) as usize, buf)
 }
 
 pub fn create() -> vm<'static>
@@ -179,41 +179,41 @@ pub fn register_io_handler<'a>(vm: &mut vm<'a>, handler: &'a io_handler_ops, bas
 
 fn find_io_handler<'a>(vm: &'a vm, port: u16) -> Option<&'a io_handler<'a>>
 {
-	for i in &vm.io {
-		if port >= i.base && port < i.base + i.size as u16 {
-			return Some(i);
-		}
-	}
+    for i in &vm.io {
+        if port >= i.base && port < i.base + i.size as u16 {
+            return Some(i);
+        }
+    }
 
-	None
+    None
 }
 
 pub enum IoOperandType {
-	byte(u8),
-	word(u16),
-	dword(u32),
+    byte(u8),
+    word(u16),
+    dword(u32),
 }
 
 pub fn handle_io_read(vm: &vm, port: u16, size: u8, data: *mut u8)
 {
-	match find_io_handler(vm, port) {
-		Some(handler) => {
-			handler.ops.io_read(port, size, data);
-		}
-		None => {
-			println!("Unhandled IO read from port {:x}", port);
-		}
-	}
+    match find_io_handler(vm, port) {
+        Some(handler) => {
+            handler.ops.io_read(port, size, data);
+        }
+        None => {
+            println!("Unhandled IO read from port {:x}", port);
+        }
+    }
 }
 
 pub fn handle_io_write(vm: &vm, port: u16, size: u8, data: *const u8) 
 {
-	match find_io_handler(vm, port) {
-		Some(handler) => {
-			handler.ops.io_write(port, size, data);
-		},
-		None => {
-			println!("Unhandled IO write to port {:x}", port);
-		}
-	};
+    match find_io_handler(vm, port) {
+        Some(handler) => {
+            handler.ops.io_write(port, size, data);
+        },
+        None => {
+            println!("Unhandled IO write to port {:x}", port);
+        }
+    };
 }
