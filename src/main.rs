@@ -386,9 +386,42 @@ fn main()
             }
 
             hv_vmx_exit_reason::VMX_REASON_IO => {
+                let size: u8 = match exit_qualif & 0x7 {
+                    0 => 1,
+                    1 => 2,
+                    3 => 4,
+                    _ => panic!("invalid IO size bits"),
+                };
+
                 let port: u16 = ((exit_qualif >> 16) & 0xFFFF) as u16; 
                 let is_read: bool = (exit_qualif & 0x8) != 0;
-                println!("IO to port {:x}, {}", port, is_read);
+
+                if is_read {
+                    let mut eax = ia32_reg_t {
+                        val: read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RAX) as u32
+                    };
+
+                    // TODO: make this suck less
+                    let mut data: *mut u8 = &mut eax.val as *mut u32 as *mut u8;
+                    vm::handle_io_read(&vm, port, size, data);
+
+                    write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RAX, eax.val as u64);
+                    
+                } else {
+                    let eax = ia32_reg_t {
+                        val: read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RAX) as u32
+                    };
+
+                    println!("Writing {:?} to port {:x} size {}", eax, port, size);
+
+                    // TODO: make this suck less
+                    let data: *const u8 = &eax.val as *const u32 as *const u8;
+                    vm::handle_io_write(&vm, port, size, data);
+                }
+
+                // TODO: next instruction
+                println!("instruction length {:?}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_INSTR_LEN));
+                wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_RIP, rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_RIP) + rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_INSTR_LEN));
             }
 
             hv_vmx_exit_reason::VMX_REASON_EPT_VIOLATION => {

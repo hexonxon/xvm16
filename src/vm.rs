@@ -176,3 +176,44 @@ pub fn register_io_handler<'a>(vm: &mut vm<'a>, handler: &'a io_handler_ops, bas
     // TODO: check of range intersects
     vm.io.push(io_handler { ops: handler, base: base, size: len });
 }
+
+fn find_io_handler<'a>(vm: &'a vm, port: u16) -> Option<&'a io_handler<'a>>
+{
+	for i in &vm.io {
+		if port >= i.base && port < i.base + i.size as u16 {
+			return Some(i);
+		}
+	}
+
+	None
+}
+
+pub enum IoOperandType {
+	byte(u8),
+	word(u16),
+	dword(u32),
+}
+
+pub fn handle_io_read(vm: &vm, port: u16, size: u8, data: *mut u8)
+{
+	match find_io_handler(vm, port) {
+		Some(handler) => {
+			handler.ops.io_read(port, size, data);
+		}
+		None => {
+			println!("Unhandled IO read from port {:x}", port);
+		}
+	}
+}
+
+pub fn handle_io_write(vm: &vm, port: u16, size: u8, data: *const u8) 
+{
+	match find_io_handler(vm, port) {
+		Some(handler) => {
+			handler.ops.io_write(port, size, data);
+		},
+		None => {
+			println!("Unhandled IO write to port {:x}", port);
+		}
+	};
+}
