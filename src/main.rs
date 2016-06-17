@@ -199,8 +199,8 @@ fn load_rom_image(path: &str) -> Arc<vm::memory_region>
     println!("ROM size {} bytes", nbytes);
 
     let reg = vm::alloc_memory_region(nbytes);
-    unsafe {
-        memcpy(reg.data as *mut u8, buffer.as_ptr(), nbytes);
+    if reg.write_bytes(0, &buffer[..]) != nbytes {
+        panic!();
     }
 
     return reg;
