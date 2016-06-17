@@ -4,23 +4,17 @@ use vm;
 struct qemudbg_dev {}
 
 impl vm::io_handler_ops for qemudbg_dev {
-    fn io_read(&self, addr: u16, size: u8, data: *mut u8) {
-        // NOTHING
-        assert!(addr == 0x402);
+    fn io_read(&self, port: u16, size: u8) -> vm::IoOperandType {
         assert!(size == 1);
-        assert!(!data.is_null());       
+        assert!(port == 0x402);
+        unimplemented!();
     }
 
-    fn io_write(&self, addr: u16, size: u8, data: *const u8) {
+    fn io_write(&self, addr: u16, data: vm::IoOperandType) {
         assert!(addr == 0x402);
-        assert!(size == 1);
-        assert!(!data.is_null());       
 
         // Output to debug console
-        // TODO: get rid of unsafe
-        unsafe {
-            print!("{}", *(data as *const char));
-        }
+        print!("{}", data.unwrap_byte() as char);
     }
 }
 

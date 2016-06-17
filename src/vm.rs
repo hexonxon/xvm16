@@ -64,9 +64,10 @@ pub struct memory_mapping
     pub flags: hv_memory_flags_t,
 }
 
-pub trait io_handler_ops {
-    fn io_read(&self, addr: u16, size: u8, data: *mut u8);
-    fn io_write(&self, addr: u16, size: u8, data: *const u8);
+pub trait io_handler_ops
+{
+    fn io_read(&self, addr: u16, size: u8) -> IoOperandType;
+    fn io_write(&self, addr: u16, data: IoOperandType);
 }
 
 pub struct io_handler<'a>
@@ -194,24 +195,55 @@ pub enum IoOperandType {
     dword(u32),
 }
 
-pub fn handle_io_read(vm: &vm, port: u16, size: u8, data: *mut u8)
-{
-    match find_io_handler(vm, port) {
-        Some(handler) => {
-            handler.ops.io_read(port, size, data);
+impl IoOperandType {
+    pub fn unwrap_byte(&self) -> u8 {
+        match self {
+            &IoOperandType::byte(v) => v,
+            _ => panic!(),
         }
-        None => {
-            println!("Unhandled IO read from port {:x}", port);
+    }
+
+    pub fn unwrap_word(&self) -> u16 {
+        match self {
+            &IoOperandType::word(v) => v,
+            _ => panic!(),
+        }
+    }
+
+    pub fn unwrap_dword(&self) -> u32 {
+        match self {
+            &IoOperandType::dword(v) => v,
+            _ => panic!(),
+        }
+    }
+
+    pub fn make_unhandled(size: u8) -> IoOperandType {
+        match size {
+            1 => IoOperandType::byte(0xFF),
+            2 => IoOperandType::word(0xFFFF),
+            4 => IoOperandType::dword(0xFFFFFFFF),
+            _ => panic!(),
         }
     }
 }
 
-pub fn handle_io_write(vm: &vm, port: u16, size: u8, data: *const u8) 
+pub fn handle_io_read(vm: &vm, port: u16, size: u8) -> IoOperandType
 {
+    // TODO: Option combinators
     match find_io_handler(vm, port) {
-        Some(handler) => {
-            handler.ops.io_write(port, size, data);
-        },
+        Some(handler) => handler.ops.io_read(port, size),
+        None => {
+            println!("Unhandled IO read from port {:x}", port);
+            return IoOperandType::make_unhandled(size);
+        }
+    }
+}
+
+pub fn handle_io_write(vm: &vm, port: u16, data: IoOperandType)
+{
+    // TODO: Option combinators
+    match find_io_handler(vm, port) {
+        Some(handler) => handler.ops.io_write(port, data),
         None => {
             println!("Unhandled IO write to port {:x}", port);
         }

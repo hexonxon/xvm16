@@ -21,6 +21,7 @@ struct ia32_reg_t {
     val: u32,
 }
 
+#[allow(dead_code)]
 impl ia32_reg_t {
     fn as_u8_lo(&self) -> u8    { self.val as u8 }
     fn as_u8_hi(&self) -> u8    { (self.val >> 8) as u8 }
@@ -354,6 +355,11 @@ fn main()
 
         let reason: hv_vmx_exit_reason = hv_vmx_exit_reason::from_u32(exit_reason).unwrap();
 
+        println!("VMCS_RO_IDT_VECTOR_INFO = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_IDT_VECTOR_INFO));
+        println!("VMCS_RO_IDT_VECTOR_ERROR = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_IDT_VECTOR_ERROR));
+        println!("VMCS_RO_VMEXIT_IRQ_INFO = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_IRQ_INFO));
+        println!("VMCS_RO_VMEXIT_IRQ_ERROR = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_IRQ_ERROR));
+
         match reason {
             hv_vmx_exit_reason::VMX_REASON_EXC_NMI => {
                 println!("VMX_REASON_EXC_NMI");
@@ -372,8 +378,6 @@ fn main()
                     dump_guest_state(vcpu);
                     dump_guest_code(&vm, gpa);
 
-                    println!("Press any key to resume execution.. ");
-                    wait_any_key();
                 }
             },
 
@@ -401,12 +405,14 @@ fn main()
                         val: read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RAX) as u32
                     };
 
-                    // TODO: make this suck less
-                    let mut data: *mut u8 = &mut eax.val as *mut u32 as *mut u8;
-                    vm::handle_io_read(&vm, port, size, data);
+                    match size {
+                        1 => eax.set_u8(vm::handle_io_read(&vm, port, size).unwrap_byte()),
+                        2 => eax.set_u16(vm::handle_io_read(&vm, port, size).unwrap_word()),
+                        4 => eax.set_u32(vm::handle_io_read(&vm, port, size).unwrap_dword()),
+                        _ => panic!(),
+                    }
 
                     write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RAX, eax.val as u64);
-                    
                 } else {
                     let eax = ia32_reg_t {
                         val: read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RAX) as u32
@@ -414,13 +420,15 @@ fn main()
 
                     println!("Writing {:?} to port {:x} size {}", eax, port, size);
 
-                    // TODO: make this suck less
-                    let data: *const u8 = &eax.val as *const u32 as *const u8;
-                    vm::handle_io_write(&vm, port, size, data);
+                    match size {
+                        1 => vm::handle_io_write(&vm, port, vm::IoOperandType::byte(eax.as_u8())),
+                        2 => vm::handle_io_write(&vm, port, vm::IoOperandType::word(eax.as_u16())),
+                        4 => vm::handle_io_write(&vm, port, vm::IoOperandType::dword(eax.as_u32())),
+                        _ => panic!(),
+                    }
                 }
 
-                // TODO: next instruction
-                println!("instruction length {:?}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_INSTR_LEN));
+                //println!("instruction length {:?}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_INSTR_LEN));
                 wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_RIP, rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_RIP) + rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_INSTR_LEN));
             }
 
@@ -433,7 +441,12 @@ fn main()
                 println!("Unhandled exit reason");
                 panic!();
             }
+
         }
+
+        // TODO: If single stepping
+        println!("Press any key to resume execution.. ");
+        wait_any_key();
 
         println!("----------");
     }
