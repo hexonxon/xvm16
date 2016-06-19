@@ -226,7 +226,7 @@ pub fn handle_io_read(vm: &vm, port: u16, size: u8) -> IoOperandType
         }
     }
 
-    info!("Unhandled IO read from port {:x}", port);
+    warn!("Unhandled IO read from port {:x}", port);
     return IoOperandType::make_unhandled(size);
 }
 
@@ -240,5 +240,5 @@ pub fn handle_io_write(vm: &mut vm, port: u16, data: IoOperandType)
         }
     }
 
-    info!("Unhandled IO write to port {:x}", port);
+    warn!("Unhandled IO write to port {:x}", port);
 }

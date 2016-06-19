@@ -19,6 +19,7 @@ use std::sync::Arc;
 use std::fs::*;
 use std::io::Read;
 use log::*;
+use num::traits::*;
 
 struct SimpleLogger;
 
@@ -29,7 +30,7 @@ impl log::Log for SimpleLogger {
 
     fn log(&self, record: &LogRecord) {
         if self.enabled(record.metadata()) {
-            println!("{}", record.args());
+            println!("[{}] {}", record.level(), record.args());
         }
     }
 }
@@ -141,30 +142,30 @@ fn dump_guest_state(vcpu: hv_vcpuid_t)
     let rip = rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_RIP);
     let cs_base = rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CS_BASE);
     let gpa = cs_base + rip;
-    info!(" EIP {:x} (CS {:x}, PA {:x})", rip, cs_base, gpa);
+    println!(" EIP {:x} (CS {:x}, PA {:x})", rip, cs_base, gpa);
 
-    info!(" EAX = {:x}, EBX = {:x}, ECX = {:x}, EDX = {:x} ",
+    println!(" EAX = {:x}, EBX = {:x}, ECX = {:x}, EDX = {:x} ",
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RAX),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RBX),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RCX),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RDX));
 
-    info!(" ESI = {:x}, EDI = {:x}, EBP = {:x}, ESP = {:x} ",
+    println!(" ESI = {:x}, EDI = {:x}, EBP = {:x}, ESP = {:x} ",
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RSI),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RDI),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RBP),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RSP));
     
-    info!(" EFLAGS = {:x} ",
+    println!(" EFLAGS = {:x} ",
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RFLAGS));
 
-    info!(" CR0 = {:x}, CR2 = {:x}, CR3 = {:x}, CR4 = {:x} ",
+    println!(" CR0 = {:x}, CR2 = {:x}, CR3 = {:x}, CR4 = {:x} ",
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_CR0),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_CR2),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_CR3),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_CR4));
 
-    info!(" CS = {:x}, DS = {:x}, SS = {:x}, ES = {:x}, FS = {:x}, GS = {:x} ",
+    println!(" CS = {:x}, DS = {:x}, SS = {:x}, ES = {:x}, FS = {:x}, GS = {:x} ",
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_CS),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_DS),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_SS),
@@ -172,14 +173,14 @@ fn dump_guest_state(vcpu: hv_vcpuid_t)
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_FS),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_GS));
 
-    info!(" GDTR = ({:x}, {:x}), IDTR = ({:x}, {:x}) ",
+    println!(" GDTR = ({:x}, {:x}), IDTR = ({:x}, {:x}) ",
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_GDT_BASE),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_GDT_LIMIT),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_IDT_BASE),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_IDT_LIMIT));
 
-    info!(" GLA = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_GUEST_LIN_ADDR));
-    info!(" EXITQ = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_EXIT_QUALIFIC));
+    println!(" GLA = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_GUEST_LIN_ADDR));
+    println!(" EXITQ = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_EXIT_QUALIFIC));
 }
 
 fn dump_guest_code(vm: &vm::vm, pa: hv_gpaddr_t)
@@ -371,32 +372,23 @@ fn main()
     // Run vm loop
     loop {
         let err = vm::run(vcpu);
-        let exit_reason = rvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_RO_EXIT_REASON);
-        let exit_qualif = rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_EXIT_QUALIFIC);
-
-        debug!("\n----------");
-
-        debug!("Exit reason {:x} ({})", exit_reason, exit_reason & 0xFFFF);
 
         if err != HV_SUCCESS {
             error!("vm_run failed with {}", err);
             break;
         }
 
+        let exit_reason = rvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_RO_EXIT_REASON);
+        let exit_qualif = rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_EXIT_QUALIFIC);
+        let ip = rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_RIP) + rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CS_BASE);
+
+        debug!("\n----------");
+        debug!("Exit reason {:x} ({})", exit_reason, exit_reason & 0xFFFF);
 
         let reason: hv_vmx_exit_reason = hv_vmx_exit_reason::from_u32(exit_reason).unwrap();
 
-        debug!("VMCS_RO_IDT_VECTOR_INFO = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_IDT_VECTOR_INFO));
-        debug!("VMCS_RO_IDT_VECTOR_ERROR = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_IDT_VECTOR_ERROR));
-        debug!("VMCS_RO_VMEXIT_IRQ_INFO = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_IRQ_INFO));
-        debug!("VMCS_RO_VMEXIT_IRQ_ERROR = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_IRQ_ERROR));
-
-        let rip = rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_RIP);
-        let cs_base = rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CS_BASE);
-        let gpa = cs_base + rip;
-
         dump_guest_state(vcpu);
-        dump_guest_code(&vm, gpa);
+        dump_guest_code(&vm, ip);
 
         match reason {
             hv_vmx_exit_reason::VMX_REASON_EXC_NMI => {
@@ -475,7 +467,5 @@ fn main()
         // TODO: If single stepping
         println!("Press any key to resume execution.. ");
         wait_any_key();
-
-        debug!("----------");
     }
 }
