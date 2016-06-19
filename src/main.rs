@@ -8,6 +8,7 @@ extern crate capstone;
 extern crate hypervisor_framework;
 
 mod qemudbg;
+mod miscdev;
 mod vm;
 
 use hypervisor_framework::*;
@@ -253,6 +254,7 @@ fn main()
 
     // Register IO handlers
     qemudbg::init(&mut vm);
+    miscdev::init(&mut vm);
 
     // Init vcpu
     wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_PIN_BASED, check_capability(hv_vmx_capability_t::HV_VMX_CAP_PINBASED, 0
@@ -421,9 +423,9 @@ fn main()
                     println!("Writing {:?} to port {:x} size {}", eax, port, size);
 
                     match size {
-                        1 => vm::handle_io_write(&vm, port, vm::IoOperandType::byte(eax.as_u8())),
-                        2 => vm::handle_io_write(&vm, port, vm::IoOperandType::word(eax.as_u16())),
-                        4 => vm::handle_io_write(&vm, port, vm::IoOperandType::dword(eax.as_u32())),
+                        1 => vm::handle_io_write(&mut vm, port, vm::IoOperandType::byte(eax.as_u8())),
+                        2 => vm::handle_io_write(&mut vm, port, vm::IoOperandType::word(eax.as_u16())),
+                        4 => vm::handle_io_write(&mut vm, port, vm::IoOperandType::dword(eax.as_u32())),
                         _ => panic!(),
                     }
                 }

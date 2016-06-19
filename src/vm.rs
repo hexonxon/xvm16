@@ -7,7 +7,7 @@ extern "C" {
     fn valloc(size: usize) -> *mut ::std::os::raw::c_void;
 }
 
-/**
+/*
  * VM allocated memory region
  */
 #[derive(Debug)]
@@ -67,17 +67,17 @@ pub struct memory_mapping
 pub trait io_handler_ops
 {
     fn io_read(&self, addr: u16, size: u8) -> IoOperandType;
-    fn io_write(&self, addr: u16, data: IoOperandType);
+    fn io_write(&mut self, addr: u16, data: IoOperandType);
 }
 
-pub struct io_handler<'a>
+pub struct io_handler
 {
-    ops: &'a io_handler_ops,
+    ops: Box<io_handler_ops>,
     base: u16,
     size: u8,
 }
 
-/**
+/*
  * VM state 
  *
  * HV framework internally creates a single global VM context for process which means 
@@ -87,14 +87,14 @@ pub struct io_handler<'a>
  * TODO: drop trait to clean up and call hv_vm_destroy
  * TODO: a better lookup for memory mappings
  */
-pub struct vm<'a> {
-    /** HV vcpu id */
+pub struct vm {
+    /* HV vcpu id */
     pub vcpu: hv_vcpuid_t,
 
-    /** Mapped memory regions, simple vector for now */
+    /* Mapped memory regions, simple vector for now */
     pub memory: Vec<memory_mapping>,
 
-    pub io: Vec<io_handler<'a>>, 
+    pub io: Vec<io_handler>,
 }
 
 
@@ -145,7 +145,7 @@ pub fn read_guest_memory(vm: &vm, addr: hv_gpaddr_t, buf: &mut [u8]) -> usize
     mapping.region.read_bytes((addr - mapping.base) as usize, buf)
 }
 
-pub fn create() -> vm<'static>
+pub fn create() -> vm
 {
     unsafe {
         let res = hv_vm_create(HV_VM_DEFAULT);
@@ -172,23 +172,13 @@ pub fn run(vcpu: hv_vcpuid_t) -> hv_return_t
     }
 }
 
-pub fn register_io_handler<'a>(vm: &mut vm<'a>, handler: &'a io_handler_ops, base: u16, len: u8)
+pub fn register_io_handler(vm: &mut vm, handler: Box<io_handler_ops>, base: u16, len: u8)
 {
     // TODO: check of range intersects
     vm.io.push(io_handler { ops: handler, base: base, size: len });
 }
 
-fn find_io_handler<'a>(vm: &'a vm, port: u16) -> Option<&'a io_handler<'a>>
-{
-    for i in &vm.io {
-        if port >= i.base && port < i.base + i.size as u16 {
-            return Some(i);
-        }
-    }
-
-    None
-}
-
+#[derive(Clone, Copy)]
 pub enum IoOperandType {
     byte(u8),
     word(u16),
@@ -229,23 +219,26 @@ impl IoOperandType {
 
 pub fn handle_io_read(vm: &vm, port: u16, size: u8) -> IoOperandType
 {
-    // TODO: Option combinators
-    match find_io_handler(vm, port) {
-        Some(handler) => handler.ops.io_read(port, size),
-        None => {
-            println!("Unhandled IO read from port {:x}", port);
-            return IoOperandType::make_unhandled(size);
+    for i in &vm.io {
+        if port >= i.base && port < i.base + i.size as u16 {
+            return i.ops.io_read(port, size);
+
         }
     }
+
+    println!("Unhandled IO read from port {:x}", port);
+    return IoOperandType::make_unhandled(size);
 }
 
-pub fn handle_io_write(vm: &vm, port: u16, data: IoOperandType)
+pub fn handle_io_write(vm: &mut vm, port: u16, data: IoOperandType)
 {
-    // TODO: Option combinators
-    match find_io_handler(vm, port) {
-        Some(handler) => handler.ops.io_write(port, data),
-        None => {
-            println!("Unhandled IO write to port {:x}", port);
+    for i in &mut vm.io {
+        if port >= i.base && port < i.base + i.size as u16 {
+            i.ops.io_write(port, data);
+            return;
+
         }
-    };
+    }
+
+    println!("Unhandled IO write to port {:x}", port);
 }
