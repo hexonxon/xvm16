@@ -6,6 +6,6 @@ authors = ["Evgeny Yakovlev <insoreiges@gmail.com>"]
 [dependencies]
 num = "0.1.0"
 rlibc = "1.0.0"
-#hypervisor_framework = { path = "../Hypervisor-framework-rs" }
 hypervisor_framework = { git = "https://github.com/warfish/Hypervisor-framework-rs" }
 capstone = { git = "https://github.com/richo/capstone-rs" }
+log = "*"

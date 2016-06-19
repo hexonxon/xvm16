@@ -4,6 +4,7 @@ version = "0.1.0"
 dependencies = [
  "capstone 0.0.4 (git+https://github.com/richo/capstone-rs)",
  "hypervisor_framework 0.1.0 (git+https://github.com/warfish/Hypervisor-framework-rs)",
+ "log 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "num 0.1.32 (registry+https://github.com/rust-lang/crates.io-index)",
  "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -27,6 +28,11 @@ dependencies = [
 [[package]]
 name = "libc"
 version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "log"
+version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]

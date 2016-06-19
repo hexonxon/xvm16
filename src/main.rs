@@ -3,6 +3,8 @@
 
 extern crate rlibc;
 extern crate num;
+#[macro_use]
+extern crate log;
 extern crate core;
 extern crate capstone;
 extern crate hypervisor_framework;
@@ -16,6 +18,30 @@ use rlibc::*;
 use std::sync::Arc;
 use std::fs::*;
 use std::io::Read;
+use log::*;
+
+struct SimpleLogger;
+
+impl log::Log for SimpleLogger {
+    fn enabled(&self, metadata: &LogMetadata) -> bool {
+        metadata.level() <= LogLevel::Debug
+    }
+
+    fn log(&self, record: &LogRecord) {
+        if self.enabled(record.metadata()) {
+            println!("{}", record.args());
+        }
+    }
+}
+
+impl SimpleLogger {
+    pub fn init() -> Result<(), SetLoggerError> {
+        log::set_logger(|max_log_level| {
+            max_log_level.set(LogLevelFilter::Debug);
+            Box::new(SimpleLogger)
+        })
+    }
+}
 
 #[derive(Default, Debug)]
 struct ia32_reg_t {
@@ -115,30 +141,30 @@ fn dump_guest_state(vcpu: hv_vcpuid_t)
     let rip = rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_RIP);
     let cs_base = rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CS_BASE);
     let gpa = cs_base + rip;
-    println!(" EIP {:x} (CS {:x}, PA {:x})", rip, cs_base, gpa);
+    info!(" EIP {:x} (CS {:x}, PA {:x})", rip, cs_base, gpa);
 
-    println!(" EAX = {:x}, EBX = {:x}, ECX = {:x}, EDX = {:x} ",
+    info!(" EAX = {:x}, EBX = {:x}, ECX = {:x}, EDX = {:x} ",
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RAX),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RBX),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RCX),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RDX));
 
-    println!(" ESI = {:x}, EDI = {:x}, EBP = {:x}, ESP = {:x} ",
+    info!(" ESI = {:x}, EDI = {:x}, EBP = {:x}, ESP = {:x} ",
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RSI),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RDI),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RBP),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RSP));
     
-    println!(" EFLAGS = {:x} ",
+    info!(" EFLAGS = {:x} ",
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RFLAGS));
 
-    println!(" CR0 = {:x}, CR2 = {:x}, CR3 = {:x}, CR4 = {:x} ",
+    info!(" CR0 = {:x}, CR2 = {:x}, CR3 = {:x}, CR4 = {:x} ",
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_CR0),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_CR2),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_CR3),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_CR4));
 
-    println!(" CS = {:x}, DS = {:x}, SS = {:x}, ES = {:x}, FS = {:x}, GS = {:x} ",
+    info!(" CS = {:x}, DS = {:x}, SS = {:x}, ES = {:x}, FS = {:x}, GS = {:x} ",
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_CS),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_DS),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_SS),
@@ -146,14 +172,14 @@ fn dump_guest_state(vcpu: hv_vcpuid_t)
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_FS),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_GS));
 
-    println!(" GDTR = ({:x}, {:x}), IDTR = ({:x}, {:x}) ",
+    info!(" GDTR = ({:x}, {:x}), IDTR = ({:x}, {:x}) ",
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_GDT_BASE),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_GDT_LIMIT),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_IDT_BASE),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_IDT_LIMIT));
 
-    println!(" GLA = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_GUEST_LIN_ADDR));
-    println!(" EXITQ = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_EXIT_QUALIFIC));
+    info!(" GLA = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_GUEST_LIN_ADDR));
+    info!(" EXITQ = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_EXIT_QUALIFIC));
 }
 
 fn dump_guest_code(vm: &vm::vm, pa: hv_gpaddr_t)
@@ -166,7 +192,7 @@ fn dump_guest_code(vm: &vm::vm, pa: hv_gpaddr_t)
     let cs = match capstone::Capstone::new(capstone::CsArch::ARCH_X86, capstone::CsMode::MODE_16) {
         Ok(cs) => cs,
         Err(err) => { 
-            println!("Error: {}", err);
+            error!("Error: {}", err);
             return;
         }
     };
@@ -178,7 +204,7 @@ fn dump_guest_code(vm: &vm::vm, pa: hv_gpaddr_t)
             }
         },
         Err(err) => {
-            println!("Error: {}", err);
+            error!("Error: {}", err);
         }
     }
 }
@@ -197,7 +223,7 @@ fn load_rom_image(path: &str) -> Arc<vm::memory_region>
         Err(err) => panic!(err.to_string()),
     };
 
-    println!("ROM size {} bytes", nbytes);
+    debug!("ROM size {} bytes", nbytes);
 
     let reg = vm::alloc_memory_region(nbytes);
     if reg.write_bytes(0, &buffer[..]) != nbytes {
@@ -216,16 +242,19 @@ fn wait_any_key()
 
 fn main() 
 {
+    // Init logger
+    SimpleLogger::init().unwrap();
+    
     // Init VM for this process
     let mut vm = vm::create();
     let vcpu = vm.vcpu;
 
     // Dump capabilities for debugging
-    println!("HV_VMX_CAP_PINBASED:      {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_PINBASED));
-    println!("HV_VMX_CAP_PROCBASED:     {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_PROCBASED));
-    println!("HV_VMX_CAP_PROCBASED2:    {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_PROCBASED2));
-    println!("HV_VMX_CAP_ENTRY:         {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_ENTRY));
-    println!("HV_VMX_CAP_EXIT:          {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_EXIT));
+    debug!("HV_VMX_CAP_PINBASED:      {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_PINBASED));
+    debug!("HV_VMX_CAP_PROCBASED:     {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_PROCBASED));
+    debug!("HV_VMX_CAP_PROCBASED2:    {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_PROCBASED2));
+    debug!("HV_VMX_CAP_ENTRY:         {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_ENTRY));
+    debug!("HV_VMX_CAP_EXIT:          {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_EXIT));
 
     // Create real mode memory region covering 640KB
     let ram_region = vm::alloc_memory_region(0xA0000);
@@ -336,7 +365,7 @@ fn main()
     wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CR4, 0x2000);
 
     write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RIP, 0x0);
-    write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RFLAGS, 0x2 | (1u64 << 8));
+    write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RFLAGS, 0x2 /*| (1u64 << 8)*/);
     write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RSP, 0x0);
 
     // Run vm loop
@@ -345,50 +374,48 @@ fn main()
         let exit_reason = rvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_RO_EXIT_REASON);
         let exit_qualif = rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_EXIT_QUALIFIC);
 
-        println!("\n----------");
+        debug!("\n----------");
 
-        println!("Exit reason {:x} ({})", exit_reason, exit_reason & 0xFFFF);
+        debug!("Exit reason {:x} ({})", exit_reason, exit_reason & 0xFFFF);
 
         if err != HV_SUCCESS {
-            println!("vm_run failed with {}", err);
+            error!("vm_run failed with {}", err);
             break;
         }
 
 
         let reason: hv_vmx_exit_reason = hv_vmx_exit_reason::from_u32(exit_reason).unwrap();
 
-        println!("VMCS_RO_IDT_VECTOR_INFO = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_IDT_VECTOR_INFO));
-        println!("VMCS_RO_IDT_VECTOR_ERROR = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_IDT_VECTOR_ERROR));
-        println!("VMCS_RO_VMEXIT_IRQ_INFO = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_IRQ_INFO));
-        println!("VMCS_RO_VMEXIT_IRQ_ERROR = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_IRQ_ERROR));
+        debug!("VMCS_RO_IDT_VECTOR_INFO = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_IDT_VECTOR_INFO));
+        debug!("VMCS_RO_IDT_VECTOR_ERROR = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_IDT_VECTOR_ERROR));
+        debug!("VMCS_RO_VMEXIT_IRQ_INFO = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_IRQ_INFO));
+        debug!("VMCS_RO_VMEXIT_IRQ_ERROR = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_IRQ_ERROR));
+
+        let rip = rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_RIP);
+        let cs_base = rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CS_BASE);
+        let gpa = cs_base + rip;
+
+        dump_guest_state(vcpu);
+        dump_guest_code(&vm, gpa);
 
         match reason {
             hv_vmx_exit_reason::VMX_REASON_EXC_NMI => {
-                println!("VMX_REASON_EXC_NMI");
+                debug!("VMX_REASON_EXC_NMI");
 
                 let irqInfo: u32 = rvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_IRQ_INFO);
                 let irqVec: u8 = (irqInfo & 0xff) as u8;
 
                 if irqVec == 1 {
-                    // TF 
-                    let rip = rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_RIP);
-                    let cs_base = rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CS_BASE);
-                    let gpa = cs_base + rip;
-
-                    println!("Guest trap @ {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_GUEST_LIN_ADDR));
-
-                    dump_guest_state(vcpu);
-                    dump_guest_code(&vm, gpa);
-
+                    debug!("Guest trap @ {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_GUEST_LIN_ADDR));
                 }
             },
 
             hv_vmx_exit_reason::VMX_REASON_IRQ => {
-                println!("VMX_REASON_IRQ");
-                println!("VMCS_RO_IDT_VECTOR_INFO = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_IDT_VECTOR_INFO));
-                println!("VMCS_RO_IDT_VECTOR_ERROR = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_IDT_VECTOR_ERROR));
-                println!("VMCS_RO_VMEXIT_IRQ_INFO = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_IRQ_INFO));
-                println!("VMCS_RO_VMEXIT_IRQ_ERROR = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_IRQ_ERROR));
+                debug!("VMX_REASON_IRQ");
+                debug!("VMCS_RO_IDT_VECTOR_INFO = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_IDT_VECTOR_INFO));
+                debug!("VMCS_RO_IDT_VECTOR_ERROR = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_IDT_VECTOR_ERROR));
+                debug!("VMCS_RO_VMEXIT_IRQ_INFO = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_IRQ_INFO));
+                debug!("VMCS_RO_VMEXIT_IRQ_ERROR = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_IRQ_ERROR));
             }
 
             hv_vmx_exit_reason::VMX_REASON_IO => {
@@ -420,7 +447,7 @@ fn main()
                         val: read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RAX) as u32
                     };
 
-                    println!("Writing {:?} to port {:x} size {}", eax, port, size);
+                    debug!("Writing {:?} to port {:x} size {}", eax, port, size);
 
                     match size {
                         1 => vm::handle_io_write(&mut vm, port, vm::IoOperandType::byte(eax.as_u8())),
@@ -430,18 +457,17 @@ fn main()
                     }
                 }
 
-                //println!("instruction length {:?}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_INSTR_LEN));
+                //debug!("instruction length {:?}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_INSTR_LEN));
                 wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_RIP, rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_RIP) + rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_INSTR_LEN));
             }
 
             hv_vmx_exit_reason::VMX_REASON_EPT_VIOLATION => {
-                println!("VMX_REASON_EPT_VIOLATION");
+                debug!("VMX_REASON_EPT_VIOLATION");
             }
 
 
             _ => {
-                println!("Unhandled exit reason");
-                panic!();
+                panic!("Unhandled exit reason");
             }
 
         }
@@ -450,6 +476,6 @@ fn main()
         println!("Press any key to resume execution.. ");
         wait_any_key();
 
-        println!("----------");
+        debug!("----------");
     }
 }

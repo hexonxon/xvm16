@@ -14,7 +14,7 @@ impl vm::io_handler_ops for qemudbg {
         assert!(addr == 0x402);
 
         // Output to debug console
-        print!("{}", data.unwrap_byte() as char);
+        debug!("{}", data.unwrap_byte() as char);
     }
 }
 
