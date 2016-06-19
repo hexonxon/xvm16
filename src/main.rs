@@ -183,14 +183,28 @@ fn dump_guest_state(vcpu: hv_vcpuid_t)
     println!(" EXITQ = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_EXIT_QUALIFIC));
 }
 
+fn is_in_real_mode(vcpu: hv_vcpuid_t) -> bool
+{
+    (rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CR0) & 0x1) == 0
+}
+
+fn get_capstone_mode(vcpu: hv_vcpuid_t) -> capstone::constants::CsMode {
+    if is_in_real_mode(vcpu) {
+        return capstone::CsMode::MODE_16;
+    } else {
+        return capstone::CsMode::MODE_32;
+    }
+}
+
 fn dump_guest_code(vm: &vm::vm, pa: hv_gpaddr_t)
 {
     const CODE_SIZE: usize = 32;
     let addr = pa;
     let mut buf: [u8; CODE_SIZE] = [0; CODE_SIZE];
     let bytes = vm::read_guest_memory(vm, addr, &mut buf);
+    let mode = get_capstone_mode(vm.vcpu);
 
-    let cs = match capstone::Capstone::new(capstone::CsArch::ARCH_X86, capstone::CsMode::MODE_16) {
+    let cs = match capstone::Capstone::new(capstone::CsArch::ARCH_X86, mode) {
         Ok(cs) => cs,
         Err(err) => { 
             error!("Error: {}", err);
