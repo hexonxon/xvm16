@@ -9,3 +9,7 @@ rlibc = "1.0.0"
 hypervisor_framework = { git = "https://github.com/warfish/Hypervisor-framework-rs" }
 capstone = { git = "https://github.com/richo/capstone-rs" }
 log = "*"
+
+[features]
+default = []
+guest-tracing = []

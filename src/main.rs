@@ -545,8 +545,9 @@ fn main()
 
         }
 
-        // TODO: If single stepping
-        println!("Press any key to resume execution.. ");
-        wait_any_key();
+        if cfg!(feature = "guest-tracing") {
+            println!("Press any key to resume execution.. ");
+            wait_any_key();
+        }
     }
 }
