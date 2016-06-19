@@ -3,14 +3,16 @@
 
 extern crate rlibc;
 extern crate num;
-#[macro_use]
-extern crate log;
 extern crate core;
 extern crate capstone;
 extern crate hypervisor_framework;
 
+#[macro_use]
+extern crate log;
+
 mod qemudbg;
 mod miscdev;
+mod cmos;
 mod vm;
 
 use hypervisor_framework::*;
@@ -318,6 +320,7 @@ fn main()
     // Register IO handlers
     qemudbg::init(&mut vm);
     miscdev::init(&mut vm);
+    cmos::init(&mut vm);
 
     // Init vcpu
     wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_PIN_BASED, check_capability(hv_vmx_capability_t::HV_VMX_CAP_PINBASED, 0
@@ -463,9 +466,9 @@ fn main()
                     };
 
                     match size {
-                        1 => eax.set_u8(vm::handle_io_read(&vm, port, size).unwrap_byte()),
-                        2 => eax.set_u16(vm::handle_io_read(&vm, port, size).unwrap_word()),
-                        4 => eax.set_u32(vm::handle_io_read(&vm, port, size).unwrap_dword()),
+                        1 => eax.set_u8(vm::handle_io_read(&mut vm, port, size).unwrap_byte()),
+                        2 => eax.set_u16(vm::handle_io_read(&mut vm, port, size).unwrap_word()),
+                        4 => eax.set_u32(vm::handle_io_read(&mut vm, port, size).unwrap_dword()),
                         _ => panic!(),
                     }
 

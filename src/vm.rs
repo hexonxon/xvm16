@@ -1,6 +1,10 @@
+/*
+ * VM model
+ */
 
 use hypervisor_framework::*;
 use std::sync::Arc;
+use std::rc::Rc;
 use rlibc::*;
 
 extern "C" {
@@ -64,17 +68,17 @@ pub struct memory_mapping
     pub flags: hv_memory_flags_t,
 }
 
-pub trait io_handler_ops
+pub trait io_handler
 {
     fn io_read(&self, addr: u16, size: u8) -> IoOperandType;
-    fn io_write(&mut self, addr: u16, data: IoOperandType);
+    fn io_write(&self, addr: u16, data: IoOperandType);
 }
 
-pub struct io_handler
+pub struct io_region
 {
-    ops: Box<io_handler_ops>,
     base: u16,
     size: u8,
+    ops: Rc<io_handler>,
 }
 
 /*
@@ -94,7 +98,7 @@ pub struct vm {
     /* Mapped memory regions, simple vector for now */
     pub memory: Vec<memory_mapping>,
 
-    pub io: Vec<io_handler>,
+    pub io: Vec<io_region>,
 }
 
 
@@ -172,10 +176,14 @@ pub fn run(vcpu: hv_vcpuid_t) -> hv_return_t
     }
 }
 
-pub fn register_io_handler(vm: &mut vm, handler: Box<io_handler_ops>, base: u16, len: u8)
+pub fn register_io_region(vm: &mut vm, handler: Rc<io_handler>, base: u16, len: u8)
 {
-    // TODO: check of range intersects
-    vm.io.push(io_handler { ops: handler, base: base, size: len });
+    // TODO: check if range intersects
+    vm.io.push(io_region { 
+        ops: handler,
+        base: base,
+        size: len
+    });
 }
 
 #[derive(Clone, Copy)]
@@ -185,6 +193,7 @@ pub enum IoOperandType {
     dword(u32),
 }
 
+#[allow(dead_code)]
 impl IoOperandType {
     pub fn unwrap_byte(&self) -> u8 {
         match self {
@@ -217,17 +226,15 @@ impl IoOperandType {
     }
 }
 
-pub fn handle_io_read(vm: &vm, port: u16, size: u8) -> IoOperandType
+pub fn handle_io_read(vm: &mut vm, port: u16, size: u8) -> IoOperandType
 {
-    for i in &vm.io {
+    for i in &mut vm.io {
         if port >= i.base && port < i.base + i.size as u16 {
             return i.ops.io_read(port, size);
-
         }
     }
 
     panic!("Unhandled IO read from port {:x}", port);
-    return IoOperandType::make_unhandled(size);
 }
 
 pub fn handle_io_write(vm: &mut vm, port: u16, data: IoOperandType)
