@@ -234,6 +234,25 @@ fn load_rom_image(path: &str) -> Arc<vm::memory_region>
     return reg;
 }
 
+// TODO: move to vm
+fn next_instruction(vcpu: hv_vcpuid_t)
+{
+    wvmcs(vcpu,
+          hv_vmx_vmcs_regs::VMCS_GUEST_RIP,
+          rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_RIP) + rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_INSTR_LEN));
+}
+
+// TODO: macro
+fn is_bit_changed<T: PrimInt>(old_val: T, new_val: T, bit: usize) -> bool {
+    ((old_val ^ new_val) & (T::one() << bit)) != T::zero()
+}
+
+#[test]
+fn test_is_bit_changed() {
+    assert!(is_bit_changed(0xdeadf00du32, 0xdeadf00du32, 15) == false);
+    assert!(is_bit_changed(0xdeadf00du32, !0xdeadf00du32, 15) == true);
+}
+
 fn wait_any_key() 
 {
     let mut input = String::new();
@@ -365,6 +384,9 @@ fn main()
     wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CR3, 0x0);
     wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CR4, 0x2000);
 
+    wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CR0_MASK, 0x1);
+    wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CR0_SHADOW, 0x20);
+
     write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RIP, 0x0);
     write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RFLAGS, 0x2 /*| (1u64 << 8)*/);
     write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RSP, 0x0);
@@ -449,8 +471,53 @@ fn main()
                     }
                 }
 
-                //debug!("instruction length {:?}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_INSTR_LEN));
-                wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_RIP, rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_RIP) + rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_VMEXIT_INSTR_LEN));
+                next_instruction(vcpu);
+            }
+
+            hv_vmx_exit_reason::VMX_REASON_MOV_CR => {
+                debug!("VMX_REASON_MOV_CR");
+                
+                let crreg = exit_qualif & 0xF;
+                let optype = (exit_qualif >> 4) & 0x3;
+                let gpreg = ((exit_qualif >> 8) & 0xF) as usize;
+
+                if optype != 0 {
+                    panic!("VMX_REASON_MOV_CR: Only MOV to CR is supported (got {})", optype);
+                }
+
+                if crreg != 0 {
+                    panic!("VMX_REASON_MOV_CR: Expected CR0, got CR{}", crreg);
+                }
+
+                if gpreg >= 8 {
+                    panic!("VMX_REASON_MOV_CR: gpreg index out of bounds {}", gpreg);
+                }
+
+                let gpregmap: [hv_x86_reg_t; 8] = [
+                    hv_x86_reg_t::HV_X86_RAX,
+                    hv_x86_reg_t::HV_X86_RCX,
+                    hv_x86_reg_t::HV_X86_RDX,
+                    hv_x86_reg_t::HV_X86_RBX,
+                    hv_x86_reg_t::HV_X86_RSP,
+                    hv_x86_reg_t::HV_X86_RBP,
+                    hv_x86_reg_t::HV_X86_RSI,
+                    hv_x86_reg_t::HV_X86_RDI,
+                ];
+
+                let new_val = read_guest_reg(vcpu, gpregmap[gpreg]);
+                let cur_val = read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_CR0);
+
+                debug!("VMX_REASON_MOV_CR: current value {:x}, new value {:x}", cur_val, new_val);
+
+                // CR0.PE?
+                if is_bit_changed(cur_val, new_val, 0) {
+                    debug!("VMX_REASON_MOV_CR: PE {}", new_val & 0x1);
+                }
+
+                // We just keep shadow value in sync
+                wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CR0_SHADOW, new_val);
+                wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CR0, new_val);
+                next_instruction(vcpu);
             }
 
             hv_vmx_exit_reason::VMX_REASON_EPT_VIOLATION => {
