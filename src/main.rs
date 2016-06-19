@@ -4,6 +4,7 @@
 extern crate rlibc;
 extern crate num;
 extern crate core;
+extern crate time;
 extern crate capstone;
 extern crate hypervisor_framework;
 
