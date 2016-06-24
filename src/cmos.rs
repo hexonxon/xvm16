@@ -36,7 +36,9 @@ const CMOS_DEFAULT_SELECTOR: u8 = 0xD;  // Default selected register
 struct CMOS
 {
     selector: u8,
-    nmi_bit: bool, // TODO: this bit should be owned by vm/vcpu
+    sta: u8,
+    stb: u8,
+    nmi_bit: bool,          // TODO: this bit should be owned by vm/vcpu
     host_time: time::Tm,    // Real host time during last update
     time: time::Tm,         // Time we are emulating
 }
@@ -47,6 +49,8 @@ impl CMOS
     {
         CMOS {
             selector: CMOS_DEFAULT_SELECTOR,
+            sta: 0b00100110,
+            stb: 0b00000110,
             nmi_bit: false,
             host_time: time::empty_tm(),
             time: time::empty_tm(),
@@ -81,6 +85,31 @@ impl CMOS
         return val;
     }
 
+    fn to_rtc_format(&self, val: i32) -> u8
+    {
+        if (self.stb & 0x04) == 0 {
+            // BCD format needed
+            assert!(val < 100);
+            let lo = (val % 10) as u8;
+            let hi = (val / 10) as u8;
+            return lo | (hi << 4);
+        } else {
+            return val as u8;
+        }
+    }
+
+    fn from_rtc_format(&self, val: u8) -> i32
+    {
+        if (self.stb & 0x04) == 0 {
+            // BCD format needed
+            let lo = (val & 0xF) as i32;
+            let hi = (val >> 4) as i32;
+            return lo + hi;
+        } else {
+            return val as i32;
+        }
+    }
+
     fn read_reg(&mut self) -> u8
     {
         // Adjust emulated time by computing elapsed duration since last time 
@@ -93,20 +122,18 @@ impl CMOS
 
         return match self.reset_selector() {
             // RTC
-            // TODO: BCD?
-            0x00 => self.time.tm_sec,
-            0x02 => self.time.tm_min,
-            0x04 => self.time.tm_hour,
-            0x06 => self.time.tm_wday + 1, // CMOS wday starts from 1
-            0x07 => self.time.tm_mday,
-            0x08 => self.time.tm_mon,
-            0x09 => self.time.tm_year % 100,
-            0x32 => self.time.tm_year / 100,
+            0x00 => self.to_rtc_format(self.time.tm_sec),
+            0x02 => self.to_rtc_format(self.time.tm_min),
+            0x04 => self.to_rtc_format(self.time.tm_hour),
+            0x06 => self.to_rtc_format(self.time.tm_wday + 1), // CMOS wday starts from 1
+            0x07 => self.to_rtc_format(self.time.tm_mday),
+            0x08 => self.to_rtc_format(self.time.tm_mon),
+            0x09 => self.to_rtc_format(self.time.tm_year % 100),
+            0x32 => self.to_rtc_format(self.time.tm_year / 100),
 
             // Status
-            0x0A => 0b00100110, // Default read only values, update bit always cleared
-            0x0B => 0b00000110, // TODO: allow BCD and hour formats
-            0x0D => 0b10000000,
+            0x0A => self.sta,
+            0x0B => self.stb,
 
             // Unsupported
             _ => 0,
@@ -115,18 +142,20 @@ impl CMOS
 
     fn write_reg(&mut self, val: u8)
     {
-        let v32 = val as i32;
         match self.reset_selector() {
             // RTC
-            // TODO: BCD?
-            0x00 => self.time.tm_sec    = v32,
-            0x02 => self.time.tm_min    = v32,
-            0x04 => self.time.tm_hour   = v32,
-            0x06 => self.time.tm_wday   = v32 - 1, // CMOS wday starts from 1
-            0x07 => self.time.tm_mday   = v32,
-            0x08 => self.time.tm_mon    = v32,
-            0x09 => self.time.tm_year   = self.time.tm_year / 100 * 100 + v32,
-            0x32 => self.time.tm_year   = v32 * 100 + self.time.tm_year % 100,
+            0x00 => self.time.tm_sec    = self.from_rtc_format(val),
+            0x02 => self.time.tm_min    = self.from_rtc_format(val),
+            0x04 => self.time.tm_hour   = self.from_rtc_format(val),
+            0x06 => self.time.tm_wday   = self.from_rtc_format(val) - 1, // CMOS wday starts from 1
+            0x07 => self.time.tm_mday   = self.from_rtc_format(val),
+            0x08 => self.time.tm_mon    = self.from_rtc_format(val),
+            0x09 => self.time.tm_year   = self.from_rtc_format(val) + self.time.tm_year / 100 * 100,
+            0x32 => self.time.tm_year   = self.from_rtc_format(val) * 100 + self.time.tm_year % 100,
+
+            // Status
+            0x0A => self.sta = val,
+            0x0B => self.stb = val,
 
             // Unsupported
             _ => (),
@@ -134,34 +163,125 @@ impl CMOS
     }
 }
 
-// Test initial state
-#[test] fn cmos_test_default() 
-{
-    let cmos = CMOS::new();
+#[cfg(test)]
+mod cmos_test {
 
-    assert!(cmos.selector == CMOS_DEFAULT_SELECTOR);
-    assert!(cmos.nmi_bit == false);
-    assert!(cmos.host_time == time::empty_tm());
-    assert!(cmos.time == time::empty_tm());
+    use super::CMOS;
+    use time;
+
+    fn read_reg(cmos: &mut CMOS, reg: u8) -> u8
+    {
+        let sel = (cmos.read_selector() & 0x80) | reg;
+        cmos.write_selector(sel);
+        return cmos.read_reg();
+    }
+
+    fn write_reg(cmos: &mut CMOS, reg: u8, val: u8)
+    {
+        let sel = (cmos.read_selector() & 0x80) | reg;
+        cmos.write_selector(sel);
+        cmos.write_reg(val);
+    }
+
+    fn read_rtc_reg(cmos: &mut CMOS, is_bcd: bool, reg: u8) -> u8
+    {
+        let mut val = read_reg(cmos, reg);
+
+        if is_bcd {
+            let lo = val & 0xF;
+            let hi = val >> 4;
+            val = hi * 10 + lo;
+        }
+
+        return val;
+
+    }
+
+    fn set_bcd(cmos: &mut CMOS, is_bcd: bool)
+    {
+        let stb = read_reg(cmos, 0x0b);
+        if is_bcd {
+            write_reg(cmos, 0x0b, stb | 0x04u8);
+        } else {
+            write_reg(cmos, 0x0b, stb & !0x04u8);
+        }
+    }
+
+    // Test initial state
+    #[test] fn default()
+    {
+        let cmos = CMOS::new();
+
+        assert!(cmos.selector == super::CMOS_DEFAULT_SELECTOR);
+        assert!(cmos.nmi_bit == false);
+        assert!(cmos.host_time == time::empty_tm());
+        assert!(cmos.time == time::empty_tm());
+    }
+
+
+    // Check that NMI bit is propogated to selector value
+    #[test] fn nmi_bit()
+    {
+        let mut cmos = CMOS::new();
+
+        let mut sel = cmos.read_selector();
+        assert!(sel & 0x80 == 0);
+
+        cmos.write_selector(sel | 0x80);
+        sel = cmos.read_selector();
+        assert!(sel & 0x80 != 0);
+
+        cmos.write_selector(sel & 0x7F);
+        sel = cmos.read_selector();
+        assert!(sel & 0x80 == 0);
+    }
+
+
+    fn rtc_to_tm(cmos: &mut CMOS) -> time::Tm
+    {
+        let is_bcd = (read_reg(cmos, 0x0b) & 0x04) == 0;
+
+        let mut tm: time::Tm = time::empty_tm();
+        tm.tm_sec = read_rtc_reg(cmos, is_bcd, 0x00) as i32;
+        tm.tm_min = read_rtc_reg(cmos, is_bcd, 0x02) as i32;
+        tm.tm_hour = read_rtc_reg(cmos, is_bcd, 0x04) as i32;
+        tm.tm_wday = read_rtc_reg(cmos, is_bcd, 0x06) as i32;
+        tm.tm_mday = read_rtc_reg(cmos, is_bcd, 0x07) as i32;
+        tm.tm_mon = read_rtc_reg(cmos, is_bcd, 0x08) as i32;
+        tm.tm_year = (read_rtc_reg(cmos, is_bcd, 0x32) as i32) * 100 + (read_rtc_reg(cmos, is_bcd, 0x09) as i32);
+
+        return tm;
+    }
+
+    fn rtc_test_common(cmos: &mut CMOS)
+    {
+        // Time reported by rtc should be within sane distance from now
+        let now = time::now();
+        let t = rtc_to_tm(cmos);
+        assert!((t - now).num_seconds() <= 1);
+
+        // Check that eventually rtc will report a monotonic increase in time
+        loop {
+            let tm1 = rtc_to_tm(cmos);
+            let tm2 = rtc_to_tm(cmos);
+            if tm2 > tm1 {
+                break;
+            }
+        }
+    }
+
+    #[test] fn rtc()
+    {
+        let mut cmos = CMOS::new();
+
+        set_bcd(&mut cmos, true);
+        rtc_test_common(&mut cmos);
+
+        set_bcd(&mut cmos, false);
+        rtc_test_common(&mut cmos);
+    }
 }
 
-
-// Check that NMI bit is propogated to selector value
-#[test] fn cmos_test_nmi_bit()
-{
-    let mut cmos = CMOS::new();
-
-    let mut sel = cmos.read_selector();
-    assert!(sel & 0x80 == 0);
-    
-    cmos.write_selector(sel | 0x80);
-    sel = cmos.read_selector();
-    assert!(sel & 0x80 != 0);
-
-    cmos.write_selector(sel & 0x7F);
-    sel = cmos.read_selector();
-    assert!(sel & 0x80 == 0);
-}
 
 // TODO: MOAR TESTS
 
