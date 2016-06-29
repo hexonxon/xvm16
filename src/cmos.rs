@@ -12,6 +12,10 @@ const CMOS_SELECT_PORT: u16     = 0x70;
 const CMOS_DATA_PORT: u16       = 0x71;
 const CMOS_TOTAL_REGS: u8       = 128;  // Total number of byte registers we emulate
 const CMOS_DEFAULT_SELECTOR: u8 = 0xD;  // Default selected register
+const CMOS_STA_DEFAULT: u8      = 0b00100110;
+const CMOS_STA_SUPPORTED: u8    = 0b00000000;
+const CMOS_STB_DEFAULT: u8      = 0b00000110;
+const CMOS_STB_SUPPORTED: u8    = 0b00000100;
 
 /* 
  * Handled registers:
@@ -28,7 +32,6 @@ const CMOS_DEFAULT_SELECTOR: u8 = 0xD;  // Default selected register
  * 0x0D      Status Register D
  *
  * Current limitations:
- * - No BCD format, only binary mode
  * - No 12 hour support, only 24
  * - No interrupt generation
  * - RTC updates on every register access which can lead to unstable time readings in guests
@@ -49,8 +52,8 @@ impl CMOS
     {
         CMOS {
             selector: CMOS_DEFAULT_SELECTOR,
-            sta: 0b00100110,
-            stb: 0b00000110,
+            sta: CMOS_STA_DEFAULT,
+            stb: CMOS_STB_DEFAULT,
             nmi_bit: false,
             host_time: time::empty_tm(),
             time: time::empty_tm(),
@@ -154,8 +157,21 @@ impl CMOS
             0x32 => self.time.tm_year   = self.from_rtc_format(val) * 100 + self.time.tm_year % 100,
 
             // Status
-            0x0A => self.sta = val,
-            0x0B => self.stb = val,
+            0x0A => {
+                let diff = self.sta ^ val;
+                if (diff & !CMOS_STA_SUPPORTED) != 0 {
+                    panic!("CMOS: setting unsupported STA bits");
+                }
+                self.sta = val;
+            },
+
+            0x0B => {
+                let diff = self.stb ^ val;
+                if (diff & !CMOS_STB_SUPPORTED) != 0 {
+                    panic!("CMOS: setting unsupported STB bits");
+                }
+                self.stb = val;
+            },
 
             // Unsupported
             _ => (),
@@ -201,9 +217,9 @@ mod cmos_test {
     {
         let stb = read_reg(cmos, 0x0b);
         if is_bcd {
-            write_reg(cmos, 0x0b, stb | 0x04u8);
+            write_reg(cmos, 0x0b, stb | 0x04);
         } else {
-            write_reg(cmos, 0x0b, stb & !0x04u8);
+            write_reg(cmos, 0x0b, stb & !0x04);
         }
     }
 
@@ -259,15 +275,6 @@ mod cmos_test {
         let now = time::now();
         let t = rtc_to_tm(cmos);
         assert!((t - now).num_seconds() <= 1);
-
-        // Check that eventually rtc will report a monotonic increase in time
-        loop {
-            let tm1 = rtc_to_tm(cmos);
-            let tm2 = rtc_to_tm(cmos);
-            if tm2 > tm1 {
-                break;
-            }
-        }
     }
 
     #[test] fn rtc()
@@ -279,6 +286,15 @@ mod cmos_test {
 
         set_bcd(&mut cmos, false);
         rtc_test_common(&mut cmos);
+
+        // Check that eventually rtc will report a monotonic increase in time
+        loop {
+            let tm1 = rtc_to_tm(&mut cmos);
+            let tm2 = rtc_to_tm(&mut cmos);
+            if tm2 > tm1 {
+                break;
+            }
+        }
     }
 }
 
