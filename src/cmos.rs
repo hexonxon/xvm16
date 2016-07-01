@@ -213,6 +213,17 @@ mod cmos_test {
 
     }
 
+    fn write_rtc_reg(cmos: &mut CMOS, is_bcd: bool, reg: u8, val: u8)
+    {
+        if is_bcd {
+            let lo = val % 10;
+            let hi = val / 10;
+            write_reg(cmos, reg, (hi << 4) | lo);
+        } else {
+            write_reg(cmos, reg, val);
+        }
+    }
+
     fn set_bcd(cmos: &mut CMOS, is_bcd: bool)
     {
         let stb = read_reg(cmos, 0x0b);
@@ -221,6 +232,50 @@ mod cmos_test {
         } else {
             write_reg(cmos, 0x0b, stb & !0x04);
         }
+    }
+
+    fn gettime(cmos: &mut CMOS) -> time::Tm
+    {
+        let is_bcd = (read_reg(cmos, 0x0b) & 0x04) == 0;
+
+        let mut tm: time::Tm = time::empty_tm();
+        tm.tm_sec = read_rtc_reg(cmos, is_bcd, 0x00) as i32;
+        tm.tm_min = read_rtc_reg(cmos, is_bcd, 0x02) as i32;
+        tm.tm_hour = read_rtc_reg(cmos, is_bcd, 0x04) as i32;
+        tm.tm_wday = read_rtc_reg(cmos, is_bcd, 0x06) as i32;
+        tm.tm_mday = read_rtc_reg(cmos, is_bcd, 0x07) as i32;
+        tm.tm_mon = read_rtc_reg(cmos, is_bcd, 0x08) as i32;
+        tm.tm_year = (read_rtc_reg(cmos, is_bcd, 0x32) as i32) * 100 + (read_rtc_reg(cmos, is_bcd, 0x09) as i32);
+
+        return tm;
+    }
+
+    fn settime(cmos: &mut CMOS, tm: time::Tm)
+    {
+        let is_bcd = (read_reg(cmos, 0x0b) & 0x04) == 0;
+
+        write_rtc_reg(cmos, is_bcd, 0x00, tm.tm_sec as u8);
+        write_rtc_reg(cmos, is_bcd, 0x02, tm.tm_min as u8);
+        write_rtc_reg(cmos, is_bcd, 0x04, tm.tm_hour as u8);
+        write_rtc_reg(cmos, is_bcd, 0x06, tm.tm_wday as u8);
+        write_rtc_reg(cmos, is_bcd, 0x07, tm.tm_mday as u8);
+        write_rtc_reg(cmos, is_bcd, 0x08, tm.tm_mon as u8);
+        write_rtc_reg(cmos, is_bcd, 0x09, (tm.tm_year % 100) as u8);
+        write_rtc_reg(cmos, is_bcd, 0x32, (tm.tm_year / 100) as u8);
+    }
+
+    fn checktime(t1: time::Tm, t2: time::Tm)
+    {
+        let delta = t2 - t1;
+        assert!(delta.num_seconds() <= 1);
+    }
+
+    fn rtc_test_common(cmos: &mut CMOS)
+    {
+        // Time reported by rtc should be within sane distance from now
+        let now = time::now();
+        let t = gettime(cmos);
+        assert!((t - now).num_seconds() <= 1);
     }
 
     // Test initial state
@@ -252,54 +307,37 @@ mod cmos_test {
         assert!(sel & 0x80 == 0);
     }
 
-
-    fn rtc_to_tm(cmos: &mut CMOS) -> time::Tm
-    {
-        let is_bcd = (read_reg(cmos, 0x0b) & 0x04) == 0;
-
-        let mut tm: time::Tm = time::empty_tm();
-        tm.tm_sec = read_rtc_reg(cmos, is_bcd, 0x00) as i32;
-        tm.tm_min = read_rtc_reg(cmos, is_bcd, 0x02) as i32;
-        tm.tm_hour = read_rtc_reg(cmos, is_bcd, 0x04) as i32;
-        tm.tm_wday = read_rtc_reg(cmos, is_bcd, 0x06) as i32;
-        tm.tm_mday = read_rtc_reg(cmos, is_bcd, 0x07) as i32;
-        tm.tm_mon = read_rtc_reg(cmos, is_bcd, 0x08) as i32;
-        tm.tm_year = (read_rtc_reg(cmos, is_bcd, 0x32) as i32) * 100 + (read_rtc_reg(cmos, is_bcd, 0x09) as i32);
-
-        return tm;
-    }
-
-    fn rtc_test_common(cmos: &mut CMOS)
-    {
-        // Time reported by rtc should be within sane distance from now
-        let now = time::now();
-        let t = rtc_to_tm(cmos);
-        assert!((t - now).num_seconds() <= 1);
-    }
-
     #[test] fn rtc()
     {
         let mut cmos = CMOS::new();
 
+        // Test sane rtc values in BCD
         set_bcd(&mut cmos, true);
         rtc_test_common(&mut cmos);
 
+        // Test sane rtc values in binary
         set_bcd(&mut cmos, false);
         rtc_test_common(&mut cmos);
 
         // Check that eventually rtc will report a monotonic increase in time
         loop {
-            let tm1 = rtc_to_tm(&mut cmos);
-            let tm2 = rtc_to_tm(&mut cmos);
+            let tm1 = gettime(&mut cmos);
+            let tm2 = gettime(&mut cmos);
             if tm2 > tm1 {
                 break;
             }
         }
+
+        // Set rtc fields and read back
+        set_bcd(&mut cmos, true);
+        settime(&mut cmos, time::empty_tm());
+        checktime(gettime(&mut cmos), time::empty_tm());
+
+        set_bcd(&mut cmos, false);
+        settime(&mut cmos, time::empty_tm());
+        checktime(gettime(&mut cmos), time::empty_tm());
     }
 }
-
-
-// TODO: MOAR TESTS
 
 ///////////////////////////////////////////////////////////////////////////////
 
