@@ -17,20 +17,18 @@ const CMOS_STA_SUPPORTED: u8    = 0b00000000;
 const CMOS_STB_DEFAULT: u8      = 0b00000110;
 const CMOS_STB_SUPPORTED: u8    = 0b00000100;
 
+const CMOS_RTC_SECONDS: u8      = 0x00;
+const CMOS_RTC_MINUTES: u8      = 0x02;
+const CMOS_RTC_HOURS: u8        = 0x04;
+const CMOS_RTC_WDAY: u8         = 0x06;
+const CMOS_RTC_MDAY: u8         = 0x07;
+const CMOS_RTC_MONTH: u8        = 0x08;
+const CMOS_RTC_YEAR: u8         = 0x09;
+const CMOS_RTC_CENTURY: u8      = 0x32;
+const CMOS_STA: u8              = 0x0A;
+const CMOS_STB: u8              = 0x0B;
+
 /* 
- * Handled registers:
- * 0x00      Seconds
- * 0x02      Minutes
- * 0x04      Hours
- * 0x06      Weekday
- * 0x07      Day of Month
- * 0x08      Month
- * 0x09      Year
- * 0x32      Century (maybe)
- * 0x0A      Status Register A
- * 0x0B      Status Register B
- * 0x0D      Status Register D
- *
  * Current limitations:
  * - No 12 hour support, only 24
  * - No interrupt generation
@@ -125,18 +123,18 @@ impl CMOS
 
         return match self.reset_selector() {
             // RTC
-            0x00 => self.to_rtc_format(self.time.tm_sec),
-            0x02 => self.to_rtc_format(self.time.tm_min),
-            0x04 => self.to_rtc_format(self.time.tm_hour),
-            0x06 => self.to_rtc_format(self.time.tm_wday + 1), // CMOS wday starts from 1
-            0x07 => self.to_rtc_format(self.time.tm_mday),
-            0x08 => self.to_rtc_format(self.time.tm_mon),
-            0x09 => self.to_rtc_format(self.time.tm_year % 100),
-            0x32 => self.to_rtc_format(self.time.tm_year / 100),
+            CMOS_RTC_SECONDS => self.to_rtc_format(self.time.tm_sec),
+            CMOS_RTC_MINUTES => self.to_rtc_format(self.time.tm_min),
+            CMOS_RTC_HOURS   => self.to_rtc_format(self.time.tm_hour),
+            CMOS_RTC_WDAY    => self.to_rtc_format(self.time.tm_wday + 1), // CMOS wday starts from 1
+            CMOS_RTC_MDAY    => self.to_rtc_format(self.time.tm_mday),
+            CMOS_RTC_MONTH   => self.to_rtc_format(self.time.tm_mon),
+            CMOS_RTC_YEAR    => self.to_rtc_format(self.time.tm_year % 100),
+            CMOS_RTC_CENTURY => self.to_rtc_format(self.time.tm_year / 100),
 
             // Status
-            0x0A => self.sta,
-            0x0B => self.stb,
+            CMOS_STA => self.sta,
+            CMOS_STB => self.stb,
 
             // Unsupported
             _ => 0,
@@ -147,17 +145,17 @@ impl CMOS
     {
         match self.reset_selector() {
             // RTC
-            0x00 => self.time.tm_sec    = self.from_rtc_format(val),
-            0x02 => self.time.tm_min    = self.from_rtc_format(val),
-            0x04 => self.time.tm_hour   = self.from_rtc_format(val),
-            0x06 => self.time.tm_wday   = self.from_rtc_format(val) - 1, // CMOS wday starts from 1
-            0x07 => self.time.tm_mday   = self.from_rtc_format(val),
-            0x08 => self.time.tm_mon    = self.from_rtc_format(val),
-            0x09 => self.time.tm_year   = self.from_rtc_format(val) + self.time.tm_year / 100 * 100,
-            0x32 => self.time.tm_year   = self.from_rtc_format(val) * 100 + self.time.tm_year % 100,
+            CMOS_RTC_SECONDS => self.time.tm_sec    = self.from_rtc_format(val),
+            CMOS_RTC_MINUTES => self.time.tm_min    = self.from_rtc_format(val),
+            CMOS_RTC_HOURS   => self.time.tm_hour   = self.from_rtc_format(val),
+            CMOS_RTC_WDAY    => self.time.tm_wday   = self.from_rtc_format(val) - 1, // CMOS wday starts from 1
+            CMOS_RTC_MDAY    => self.time.tm_mday   = self.from_rtc_format(val),
+            CMOS_RTC_MONTH   => self.time.tm_mon    = self.from_rtc_format(val),
+            CMOS_RTC_YEAR    => self.time.tm_year   = self.from_rtc_format(val) + self.time.tm_year / 100 * 100,
+            CMOS_RTC_CENTURY => self.time.tm_year   = self.from_rtc_format(val) * 100 + self.time.tm_year % 100,
 
             // Status
-            0x0A => {
+            CMOS_STA => {
                 let diff = self.sta ^ val;
                 if (diff & !CMOS_STA_SUPPORTED) != 0 {
                     panic!("CMOS: setting unsupported STA bits");
@@ -165,7 +163,7 @@ impl CMOS
                 self.sta = val;
             },
 
-            0x0B => {
+            CMOS_STB => {
                 let diff = self.stb ^ val;
                 if (diff & !CMOS_STB_SUPPORTED) != 0 {
                     panic!("CMOS: setting unsupported STB bits");
@@ -226,42 +224,43 @@ mod cmos_test {
 
     fn set_bcd(cmos: &mut CMOS, is_bcd: bool)
     {
-        let stb = read_reg(cmos, 0x0b);
+        let stb = read_reg(cmos, super::CMOS_STB);
         if is_bcd {
-            write_reg(cmos, 0x0b, stb | 0x04);
+            write_reg(cmos, super::CMOS_STB, stb | 0x04);
         } else {
-            write_reg(cmos, 0x0b, stb & !0x04);
+            write_reg(cmos, super::CMOS_STB, stb & !0x04);
         }
     }
 
     fn gettime(cmos: &mut CMOS) -> time::Tm
     {
-        let is_bcd = (read_reg(cmos, 0x0b) & 0x04) == 0;
+        let is_bcd = (read_reg(cmos, super::CMOS_STB) & 0x04) == 0;
 
         let mut tm: time::Tm = time::empty_tm();
-        tm.tm_sec = read_rtc_reg(cmos, is_bcd, 0x00) as i32;
-        tm.tm_min = read_rtc_reg(cmos, is_bcd, 0x02) as i32;
-        tm.tm_hour = read_rtc_reg(cmos, is_bcd, 0x04) as i32;
-        tm.tm_wday = read_rtc_reg(cmos, is_bcd, 0x06) as i32;
-        tm.tm_mday = read_rtc_reg(cmos, is_bcd, 0x07) as i32;
-        tm.tm_mon = read_rtc_reg(cmos, is_bcd, 0x08) as i32;
-        tm.tm_year = (read_rtc_reg(cmos, is_bcd, 0x32) as i32) * 100 + (read_rtc_reg(cmos, is_bcd, 0x09) as i32);
+        tm.tm_sec = read_rtc_reg(cmos, is_bcd, super::CMOS_RTC_SECONDS) as i32;
+        tm.tm_min = read_rtc_reg(cmos, is_bcd, super::CMOS_RTC_MINUTES) as i32;
+        tm.tm_hour = read_rtc_reg(cmos, is_bcd, super::CMOS_RTC_HOURS) as i32;
+        tm.tm_wday = read_rtc_reg(cmos, is_bcd, super::CMOS_RTC_WDAY) as i32;
+        tm.tm_mday = read_rtc_reg(cmos, is_bcd, super::CMOS_RTC_MDAY) as i32;
+        tm.tm_mon = read_rtc_reg(cmos, is_bcd, super::CMOS_RTC_MONTH) as i32;
+        tm.tm_year = (read_rtc_reg(cmos, is_bcd, super::CMOS_RTC_CENTURY) as i32) * 100
+                     + (read_rtc_reg(cmos, is_bcd, super::CMOS_RTC_YEAR) as i32);
 
         return tm;
     }
 
     fn settime(cmos: &mut CMOS, tm: time::Tm)
     {
-        let is_bcd = (read_reg(cmos, 0x0b) & 0x04) == 0;
+        let is_bcd = (read_reg(cmos, super::CMOS_STB) & 0x04) == 0;
 
-        write_rtc_reg(cmos, is_bcd, 0x00, tm.tm_sec as u8);
-        write_rtc_reg(cmos, is_bcd, 0x02, tm.tm_min as u8);
-        write_rtc_reg(cmos, is_bcd, 0x04, tm.tm_hour as u8);
-        write_rtc_reg(cmos, is_bcd, 0x06, tm.tm_wday as u8);
-        write_rtc_reg(cmos, is_bcd, 0x07, tm.tm_mday as u8);
-        write_rtc_reg(cmos, is_bcd, 0x08, tm.tm_mon as u8);
-        write_rtc_reg(cmos, is_bcd, 0x09, (tm.tm_year % 100) as u8);
-        write_rtc_reg(cmos, is_bcd, 0x32, (tm.tm_year / 100) as u8);
+        write_rtc_reg(cmos, is_bcd, super::CMOS_RTC_SECONDS, tm.tm_sec as u8);
+        write_rtc_reg(cmos, is_bcd, super::CMOS_RTC_MINUTES, tm.tm_min as u8);
+        write_rtc_reg(cmos, is_bcd, super::CMOS_RTC_HOURS, tm.tm_hour as u8);
+        write_rtc_reg(cmos, is_bcd, super::CMOS_RTC_WDAY, tm.tm_wday as u8);
+        write_rtc_reg(cmos, is_bcd, super::CMOS_RTC_MDAY, tm.tm_mday as u8);
+        write_rtc_reg(cmos, is_bcd, super::CMOS_RTC_MONTH, tm.tm_mon as u8);
+        write_rtc_reg(cmos, is_bcd, super::CMOS_RTC_YEAR, (tm.tm_year % 100) as u8);
+        write_rtc_reg(cmos, is_bcd, super::CMOS_RTC_CENTURY, (tm.tm_year / 100) as u8);
     }
 
     fn checktime(t1: time::Tm, t2: time::Tm)
