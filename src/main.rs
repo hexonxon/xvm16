@@ -14,6 +14,7 @@ extern crate log;
 mod qemudbg;
 mod miscdev;
 mod cmos;
+mod pit;
 mod vm;
 
 use hypervisor_framework::*;
@@ -322,6 +323,7 @@ fn main()
     qemudbg::init(&mut vm);
     miscdev::init(&mut vm);
     cmos::init(&mut vm);
+    pit::init(&mut vm);
 
     // Init vcpu
     wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_PIN_BASED, check_capability(hv_vmx_capability_t::HV_VMX_CAP_PINBASED, 0
