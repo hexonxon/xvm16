@@ -113,11 +113,14 @@ struct PITChannel
     count: u16,
     latch: u16,
     latch_locked: bool,     // Latch is locked and should not be updated
+    gate_state: bool,
+    out_state: bool,
     mode: PITChannelMode,
     state: PITChannelState,
     access: PITChannelAccess,
     read_more: bool,        // There is 1 more byte to read
     time: time::Timespec,   // Last update time
+    first_update: bool,     // Have we seen an update since last reload?
 }
 
 impl PITChannel
@@ -131,7 +134,10 @@ impl PITChannel
             state: PITChannelState::Initial,
             access: PITChannelAccess::Word,
             latch_locked: false,
+            gate_state: false,
+            out_state: false,
             read_more: false,
+            first_update: false,
             time: time::empty_tm().to_timespec(),
         }
     }
@@ -151,6 +157,14 @@ impl PITChannel
         self.reload = 0; // TODO: does reload reset to 0 actually?
         self.read_more = false;
         self.latch_locked = false;
+        self.gate_state = false;
+    }
+
+    fn set_count(&mut self, val: u16) {
+        self.count = val;
+        if !self.latch_locked {
+            self.latch = self.count;
+        }
     }
 
     /*
@@ -164,27 +178,53 @@ impl PITChannel
         let time = time::now().to_timespec();
         let delta_mms = (time - self.time).num_microseconds().unwrap();
         assert!(delta_mms > 0);
-
-        let ticks = ((delta_mms as f64) * PIT_FREQ_MHZ) as u64;
-
-        let mut delta_ticks = 0;
-        if self.reload == 0 {
-            delta_ticks = (ticks % 0x10000) as u16;
-        } else {
-            delta_ticks =  (ticks % self.reload as u64) as u16;
-        }
-
-        if self.count >= delta_ticks {
-            self.count = self.count - delta_ticks;
-        } else {
-            self.count = self.reload - (delta_ticks - self.count);
-        }
-
-        if !self.latch_locked {
-            self.latch = self.count;
-        }
-
         self.time = time;
+
+        let mut ticks = ((delta_mms as f64) * PIT_FREQ_MHZ) as u64;
+        if ticks == 0 {
+            return;
+        }
+
+        // Mode specific processing
+        // TODO: This screams polymorphism
+        match self.mode {
+            PITChannelMode::Mode0 => {
+                // Account for one clock tick spent on reloading counter value right after reload
+                if self.first_update {
+                    ticks -= 1;
+                }
+
+                // When reaching 0 set out to high and to remain high until next reload value
+                if ticks >= self.count as u64 {
+                    self.set_count(0);
+                    self.out_state = true;
+                } else {
+                    let count = self.count - ticks as u16;
+                    self.set_count(count);
+                }
+            },
+
+            _ => {
+                panic!();
+            }
+        };
+
+        self.first_update = false;
+
+        /*
+        if self.reload == 0 {
+            ticks = (ticks % 0x10000) as u16;
+        } else {
+            ticks = (ticks % self.reload as u64) as u16;
+        }
+
+        let mut count = 0;
+        if self.count >= delta_ticks {
+            count = self.count - delta_ticks;
+        } else {
+            count = self.reload - (delta_ticks - self.count);
+        }
+        */
     }
 
     /*
@@ -227,10 +267,22 @@ impl PITChannel
         }
 
         // When state changes to enabled, update count and time
+        // TODO: Mode specific on what to do after reload is set - refactor
         if self.state == PITChannelState::Enabled {
-            self.count = self.reload;
+            let count = self.reload;
+            self.set_count(count);
             self.time = time::now().to_timespec();
+            self.first_update = true;
+            self.out_state = false;
         }
+    }
+
+    fn gate_set(&mut self, state: bool) {
+        self.gate_state = state;
+    }
+
+    fn out(&self) -> bool {
+        self.out_state
     }
 
     /*
@@ -266,7 +318,7 @@ impl PITChannel
     }
 
     /*
-     * Read a byte from channel data port
+     * gRead a byte from channel data port
      */
     fn read(&mut self) -> u8 {
 
@@ -344,6 +396,25 @@ mod pit_channel_test
 
         println!("{}, {}", cd, td.num_microseconds().unwrap());
         return (cd as f64) / (td.num_microseconds().unwrap() as f64);
+    }
+
+    /*
+     * Wait for a given count value to be seen on pit channel.
+     */
+    fn wait_for(ch: &mut PITChannel, val: u16) {
+        let mut prev = read_count(ch);
+        loop {
+            ch.update();
+            let now = read_count(ch);
+
+            if prev >= val {
+                if now > prev || now <= val {
+                    break;
+                }
+            }
+
+            prev = now;
+        }
     }
 
     /*
@@ -455,44 +526,30 @@ mod pit_channel_test
      * Test PIT mode 0
      */
     #[test] fn mode0() {
+        let reload = 0x1000;
         let mut ch = PITChannel::default();
 
         ch.reset(PITChannelMode::Mode0, PITChannelAccess::Word);
-        assert!(ch.access == PITChannelAccess::Word);
-        assert!(ch.mode == PITChannelMode::Mode0);
-        assert!(ch.state == PITChannelState::WaitLo);
+        ch.write(reload as u8);
+        ch.write((reload >> 8) as u8);
+        assert!(read_count(&mut ch) == reload);
 
-        ch.write(0xAB);
-        assert!(ch.state == PITChannelState::WaitHi);
+        // Initial output is low
+        assert!(ch.out() == false);
 
-        ch.write(0xCD);
-        assert!(ch.state == PITChannelState::Enabled);
-        assert!(ch.reload == 0xCDAB);
+        // After decrementing to 0 out is high and remains high
+        wait_for(&mut ch, 0);
+        assert!(ch.out() == true);
+        ch.update();
+        assert!(ch.out() == true);
 
-        // Count is set to reload value after reset is complete
-        assert!(0xCDAB == read_count(&mut ch));
+        // After writing new reload value out goes low
+        ch.write(reload as u8);
+        ch.write((reload >> 8) as u8);
+        assert!(read_count(&mut ch) == reload);
+        assert!(ch.out() == false);
 
-        // Count decrements until it reaches 0 and then reload value is reset again
-        let mut seen_decrement = false;
-        loop {
-            ch.update();
-            let c1 = read_count(&mut ch);
-
-            ch.update();
-            let c2 = read_count(&mut ch);
-
-            // We should see at least one decrement before value wraps around
-            if c2 < c1 {
-                seen_decrement = true;
-            } else {
-                assert!(seen_decrement);
-                break;
-            }
-        }
-
-        // Check freqency
-        let freq = calc_frequency(&mut ch);
-        println!("{}", freq);
+        // TODO: account for reload + 1 ticks to reach 0
     }
 }
 
