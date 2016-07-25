@@ -168,6 +168,52 @@ impl PITChannel
     }
 
     /*
+     * Mode specific handling of a number of updated ticks
+     */
+    fn on_update(&mut self, ticks: u64) {
+        match self.mode {
+
+            PITChannelMode::Mode0 => {
+                // Account for one clock tick spent on reloading counter value right after reload
+                let mut ticks = ticks;
+                if self.first_update {
+                    ticks -= 1;
+                    self.first_update = false;
+                }
+
+                // When reaching 0 set out to high and to remain high until next reload value
+                if ticks >= self.count as u64 {
+                    self.set_count(0);
+                    self.out_state = true;
+                } else {
+                    let count = self.count - ticks as u16;
+                    self.set_count(count);
+                }
+            },
+
+            _ => {
+                panic!();
+            }
+        };
+    }
+
+    /*
+     * Mode specific handling of new reload value
+     */
+    fn on_reload(&mut self) {
+        match self.mode {
+            PITChannelMode::Mode0 => {
+                self.first_update = true;
+                self.out_state = false;
+            },
+
+            _ => {
+                panic!();
+            }
+        };
+    }
+
+    /*
      * Update stored value based on operation mode and elapsed ticks
      */
     fn update(&mut self) {
@@ -186,30 +232,8 @@ impl PITChannel
         }
 
         // Mode specific processing
-        // TODO: This screams polymorphism
-        match self.mode {
-            PITChannelMode::Mode0 => {
-                // Account for one clock tick spent on reloading counter value right after reload
-                if self.first_update {
-                    ticks -= 1;
-                }
+        self.on_update(ticks);
 
-                // When reaching 0 set out to high and to remain high until next reload value
-                if ticks >= self.count as u64 {
-                    self.set_count(0);
-                    self.out_state = true;
-                } else {
-                    let count = self.count - ticks as u16;
-                    self.set_count(count);
-                }
-            },
-
-            _ => {
-                panic!();
-            }
-        };
-
-        self.first_update = false;
 
         /*
         if self.reload == 0 {
@@ -272,8 +296,7 @@ impl PITChannel
             let count = self.reload;
             self.set_count(count);
             self.time = time::now().to_timespec();
-            self.first_update = true;
-            self.out_state = false;
+            self.on_reload();
         }
     }
 
