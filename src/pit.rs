@@ -112,11 +112,11 @@ struct PITChannel
     reload: u16,
     count: u16,
     latch: u16,
+    latch_locked: bool,     // Latch is locked and should not be updated
     mode: PITChannelMode,
     state: PITChannelState,
     access: PITChannelAccess,
     read_more: bool,        // There is 1 more byte to read
-    read_latch: bool,       // Next read should be from latch instead of count
     time: time::Timespec,   // Last update time
 }
 
@@ -130,8 +130,8 @@ impl PITChannel
             mode: PITChannelMode::Mode0,
             state: PITChannelState::Initial,
             access: PITChannelAccess::Word,
+            latch_locked: false,
             read_more: false,
-            read_latch: false,
             time: time::empty_tm().to_timespec(),
         }
     }
@@ -150,7 +150,7 @@ impl PITChannel
         };
         self.reload = 0; // TODO: does reload reset to 0 actually?
         self.read_more = false;
-        self.read_latch = false;
+        self.latch_locked = false;
     }
 
     /*
@@ -169,15 +169,19 @@ impl PITChannel
 
         let mut delta_ticks = 0;
         if self.reload == 0 {
-            delta_ticks = ((ticks % 0x10000) as u16);
+            delta_ticks = (ticks % 0x10000) as u16;
         } else {
-            delta_ticks =  ((ticks % self.reload as u64) as u16);
+            delta_ticks =  (ticks % self.reload as u64) as u16;
         }
 
         if self.count >= delta_ticks {
             self.count = self.count - delta_ticks;
         } else {
             self.count = self.reload - (delta_ticks - self.count);
+        }
+
+        if !self.latch_locked {
+            self.latch = self.count;
         }
 
         self.time = time;
@@ -233,8 +237,7 @@ impl PITChannel
      * Store current count value to internal register
      */
     fn latch_count(&mut self) {
-        self.latch = self.count;
-        self.read_latch = true;
+        self.latch_locked = true;
     }
 
     /*
@@ -266,36 +269,32 @@ impl PITChannel
      * Read a byte from channel data port
      */
     fn read(&mut self) -> u8 {
-        // TODO: do write states have any effect on read states?
-        //       i.e. if channel is waiting for reload value
-        //       what happend if we write to it?
 
-        if !self.read_more {
-            if self.read_latch {
-                self.read_more = true;
-                return self.latch as u8;
-            } else {
-                match self.access {
-                    PITChannelAccess::LoByte =>
-                        return self.count as u8,
-                    PITChannelAccess::HiByte =>
-                        return (self.count >> 8) as u8,
-                    PITChannelAccess::Word => {
-                        self.read_more = true;
-                        return self.count as u8;
-                    },
-                }
-            }
-        } else {
+        let mut res = 0;
+
+        if self.read_more {
+            assert!(self.access == PITChannelAccess::Word);
             self.read_more = false;
-            if self.read_latch {
-                self.read_latch = false;
-                return (self.latch >> 8) as u8;
-            } else {
-                assert!(self.access == PITChannelAccess::Word);
-                return (self.count >> 8) as u8;
-            }
+            res = (self.latch >> 8) as u8;
+        } else {
+            res = match self.access {
+                PITChannelAccess::LoByte =>
+                    self.latch as u8,
+                PITChannelAccess::HiByte =>
+                    (self.latch >> 8) as u8,
+                PITChannelAccess::Word => {
+                    self.read_more = true;
+                    self.latch as u8
+                },
+            };
         }
+
+        // Latch is always unlocked when full read is complete
+        if !self.read_more {
+            self.latch_locked = false;
+        }
+
+        return res;
     }
 }
 
@@ -305,14 +304,15 @@ mod pit_channel_test
     use super::{PITChannel, PITChannelMode, PITChannelAccess, PITChannelState};
     use time;
 
-    /*
-     * A helper to read latched count from pit channel
-     */
     fn read_count(ch: &mut PITChannel) -> u16 {
-        ch.latch_count();
         let lo = ch.read();
         let hi = ch.read();
         return (lo as u16) | ((hi as u16) << 8);
+    }
+
+    fn read_latched_count(ch: &mut PITChannel) -> u16 {
+        ch.latch_count();
+        read_count(ch)
     }
 
     /*
@@ -436,20 +436,18 @@ mod pit_channel_test
 
         // Read from count pre-latch
         ch.update();
-        let count1 = (ch.read() as u16) | ((ch.read() as u16) << 8);
-        assert!(count1 == ch.count);
+        let count1 = read_count(&mut ch);
 
         ch.latch_count();
         ch.update(); // Move ticks again so that latched value differs from count
 
         // Read from latch
-        let latch = (ch.read() as u16) | ((ch.read() as u16) << 8);
-        assert!(latch == ch.latch);
+        let latch = read_count(&mut ch);
         assert!(latch == count1);
 
-        // Read from count
-        let count2 = (ch.read() as u16) | ((ch.read() as u16) << 8);
-        assert!(count2 == ch.count);
+        // After reading latch is always unlocked, update count to verify
+        ch.update();
+        let count2 = read_count(&mut ch);
         assert!(latch != count2);
     }
 
