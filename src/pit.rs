@@ -119,7 +119,6 @@ struct PITChannel
     state: PITChannelState,
     access: PITChannelAccess,
     read_more: bool,        // There is 1 more byte to read
-    time: time::Timespec,   // Last update time
     first_update: bool,     // Have we seen an update since last reload?
 }
 
@@ -138,7 +137,6 @@ impl PITChannel
             out_state: false,
             read_more: false,
             first_update: false,
-            time: time::empty_tm().to_timespec(),
         }
     }
 
@@ -168,11 +166,33 @@ impl PITChannel
     }
 
     /*
-     * Mode specific handling of a number of updated ticks
+     * Mode specific handling of new reload value
      */
-    fn on_update(&mut self, ticks: u64) {
+    fn reload(&mut self) {
         match self.mode {
+            PITChannelMode::Mode0 => {
+                self.first_update = true;
+                self.out_state = false;
+            },
 
+            _ => {
+                panic!();
+            }
+        };
+
+        let count = self.reload;
+        self.set_count(count);
+    }
+
+    /*
+     * Update stored value based on operation mode and elapsed ticks
+     */
+    fn update(&mut self, ticks: u64) {
+        if self.state != PITChannelState::Enabled {
+            return;
+        }
+
+        match self.mode {
             PITChannelMode::Mode0 => {
                 // Account for one clock tick spent on reloading counter value right after reload
                 let mut ticks = ticks;
@@ -195,60 +215,6 @@ impl PITChannel
                 panic!();
             }
         };
-    }
-
-    /*
-     * Mode specific handling of new reload value
-     */
-    fn on_reload(&mut self) {
-        match self.mode {
-            PITChannelMode::Mode0 => {
-                self.first_update = true;
-                self.out_state = false;
-            },
-
-            _ => {
-                panic!();
-            }
-        };
-    }
-
-    /*
-     * Update stored value based on operation mode and elapsed ticks
-     */
-    fn update(&mut self) {
-        if self.state != PITChannelState::Enabled {
-            return;
-        }
-
-        let time = time::now().to_timespec();
-        let delta_mms = (time - self.time).num_microseconds().unwrap();
-        assert!(delta_mms > 0);
-        self.time = time;
-
-        let mut ticks = ((delta_mms as f64) * PIT_FREQ_MHZ) as u64;
-        if ticks == 0 {
-            return;
-        }
-
-        // Mode specific processing
-        self.on_update(ticks);
-
-
-        /*
-        if self.reload == 0 {
-            ticks = (ticks % 0x10000) as u16;
-        } else {
-            ticks = (ticks % self.reload as u64) as u16;
-        }
-
-        let mut count = 0;
-        if self.count >= delta_ticks {
-            count = self.count - delta_ticks;
-        } else {
-            count = self.reload - (delta_ticks - self.count);
-        }
-        */
     }
 
     /*
@@ -293,10 +259,7 @@ impl PITChannel
         // When state changes to enabled, update count and time
         // TODO: Mode specific on what to do after reload is set - refactor
         if self.state == PITChannelState::Enabled {
-            let count = self.reload;
-            self.set_count(count);
-            self.time = time::now().to_timespec();
-            self.on_reload();
+            self.reload();
         }
     }
 
@@ -390,6 +353,7 @@ mod pit_channel_test
         read_count(ch)
     }
 
+/*
     /*
      * A helper to calculate pit channel effective frequency
      */
@@ -439,7 +403,7 @@ mod pit_channel_test
             prev = now;
         }
     }
-
+*/
     /*
      * Test reset state
      */
@@ -451,11 +415,11 @@ mod pit_channel_test
         assert!(ch.count == 0);
 
         // Update does not change count until reload value is set
-        ch.update();
+        ch.update(100);
         assert!(read_count(&mut ch) == 0);
         ch.write(0xFF);
         ch.write(0xFF);
-        ch.update();
+        ch.update(100);
         assert!(read_count(&mut ch) != 0);
     }
 
@@ -499,21 +463,21 @@ mod pit_channel_test
         ch.reset(PITChannelMode::Mode0, PITChannelAccess::Word);
         ch.write(0xFF);
         ch.write(0xFF);
-        ch.update(); // To move ticks forward a bit
+        ch.update(100); // To move ticks forward a bit
         assert!(ch.read() == (ch.count & 0xFF) as u8);
         assert!(ch.read() == ((ch.count >> 8) & 0xFF) as u8);
 
         // LoByte
         ch.reset(PITChannelMode::Mode0, PITChannelAccess::LoByte);
         ch.write(0xFF);
-        ch.update(); // To move ticks forward a bit
+        ch.update(100); // To move ticks forward a bit
         assert!(ch.read() == (ch.count & 0xFF) as u8);
         assert!(ch.read() == (ch.count & 0xFF) as u8); // Value is repeated
 
         // HiByte
         ch.reset(PITChannelMode::Mode0, PITChannelAccess::HiByte);
         ch.write(0xFF);
-        ch.update(); // To move ticks forward a bit
+        ch.update(100); // To move ticks forward a bit
         assert!(ch.read() == ((ch.count >> 8) & 0xFF) as u8);
         assert!(ch.read() == ((ch.count >> 8) & 0xFF) as u8); // Value is repeated
     }
@@ -529,18 +493,18 @@ mod pit_channel_test
         ch.write(0xFF);
 
         // Read from count pre-latch
-        ch.update();
+        ch.update(100);
         let count1 = read_count(&mut ch);
 
         ch.latch_count();
-        ch.update(); // Move ticks again so that latched value differs from count
+        ch.update(100); // Move ticks again so that latched value differs from count
 
         // Read from latch
         let latch = read_count(&mut ch);
         assert!(latch == count1);
 
         // After reading latch is always unlocked, update count to verify
-        ch.update();
+        ch.update(100);
         let count2 = read_count(&mut ch);
         assert!(latch != count2);
     }
@@ -560,10 +524,14 @@ mod pit_channel_test
         // Initial output is low
         assert!(ch.out() == false);
 
-        // After decrementing to 0 out is high and remains high
-        wait_for(&mut ch, 0);
+        // reload + 1 ticks is required for mode0 output to go high, verify that
+        ch.update(reload as u64);
+        assert!(ch.out() == false);
+        ch.update(1);
         assert!(ch.out() == true);
-        ch.update();
+
+        // After decrementing to 0 out is high and remains high
+        ch.update(100);
         assert!(ch.out() == true);
 
         // After writing new reload value out goes low
@@ -571,8 +539,6 @@ mod pit_channel_test
         ch.write((reload >> 8) as u8);
         assert!(read_count(&mut ch) == reload);
         assert!(ch.out() == false);
-
-        // TODO: account for reload + 1 ticks to reach 0
     }
 }
 
