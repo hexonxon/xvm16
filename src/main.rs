@@ -16,6 +16,7 @@ mod miscdev;
 mod cmos;
 mod pit;
 mod vm;
+mod pci;
 
 use hypervisor_framework::*;
 use rlibc::*;
@@ -324,6 +325,7 @@ fn main()
     miscdev::init(&mut vm);
     cmos::init(&mut vm);
     pit::init(&mut vm);
+    pci::init(&mut vm);
 
     // Init vcpu
     wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_PIN_BASED, check_capability(hv_vmx_capability_t::HV_VMX_CAP_PINBASED, 0
