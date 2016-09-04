@@ -139,12 +139,17 @@ mod i8259a_test
 
 struct PIC 
 {
+    master: I8259A,
+    slave: I8259A,
 }
 
 impl PIC
 {
     fn new() -> PIC {
-        PIC {}
+        PIC {
+            master: I8259A::default(),
+            slave: I8259A::default(),
+        }
     }
 }
 
@@ -160,13 +165,30 @@ impl vm::io_handler for PICDev
     fn io_read(&self, port: u16, size: u8) -> vm::IoOperandType
     {
         assert!(size == 1);
-        vm::IoOperandType::byte(0)
+
+        let mut dev = self.pic.borrow_mut();
+        vm::IoOperandType::byte(
+            match port {
+                PIC_MASTER_DATA => dev.master.read(),
+                PIC_SLAVE_DATA => dev.slave.read(),
+                _ => 0,
+            }
+        )
     }
 
 
     fn io_write(&self, port: u16, data: vm::IoOperandType)
     {
-        unimplemented!();
+        let mut dev = self.pic.borrow_mut();
+        let data8 = data.unwrap_byte();
+
+        match port {
+            PIC_MASTER_DATA => dev.master.write(data8),
+            PIC_SLAVE_DATA => dev.slave.write(data8),
+            PIC_MASTER_CMD => dev.master.command(data8),
+            PIC_SLAVE_CMD => dev.slave.command(data8),
+            _ => panic!(),
+        }
     }
 }
 
