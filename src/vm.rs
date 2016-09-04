@@ -229,7 +229,7 @@ impl IoOperandType {
 pub fn handle_io_read(vm: &mut vm, port: u16, size: u8) -> IoOperandType
 {
     for i in &mut vm.io {
-        if port >= i.base && port < i.base + i.size as u16 {
+        if port == i.base {
             return i.ops.io_read(port, size);
         }
     }
@@ -240,7 +240,7 @@ pub fn handle_io_read(vm: &mut vm, port: u16, size: u8) -> IoOperandType
 pub fn handle_io_write(vm: &mut vm, port: u16, data: IoOperandType)
 {
     for i in &mut vm.io {
-        if port >= i.base && port < i.base + i.size as u16 {
+        if port == i.base {
             i.ops.io_write(port, data);
             return;
 
