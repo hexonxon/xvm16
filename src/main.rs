@@ -17,6 +17,7 @@ mod cmos;
 mod pit;
 mod vm;
 mod pci;
+mod pic;
 
 use hypervisor_framework::*;
 use rlibc::*;
@@ -324,6 +325,7 @@ fn main()
     qemudbg::init(&mut vm);
     miscdev::init(&mut vm);
     cmos::init(&mut vm);
+    pic::init(&mut vm);
     pit::init(&mut vm);
     pci::init(&mut vm);
 
