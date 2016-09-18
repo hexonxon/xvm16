@@ -88,15 +88,15 @@ pub struct io_region
  * TODO: drop trait to clean up and call hv_vm_destroy
  * TODO: a better lookup for memory mappings
  */
-pub struct vm {
+struct vm {
     /* HV vcpu id */
-    pub vcpu: hv_vcpuid_t,
+    vcpu: hv_vcpuid_t,
 
     /* Mapped memory regions */
-    pub memory: Vec<memory_mapping>,
+    memory: Vec<memory_mapping>,
 
     /* Registred PIO regions */
-    pub io: Vec<io_region>,
+    io: Vec<io_region>,
 }
 
 /*
