@@ -59,13 +59,13 @@ impl vm::io_handler for PCIRootDev
     }
 }
 
-pub fn init(vm: &mut vm::vm)
+pub fn init()
 {
 	let dev = Rc::new(PCIRootDev {
         pci_root: RefCell::new(PCIRoot::new()),
     });
 
-    vm::register_io_region(vm, dev.clone(), PCI_CONFIG_ADDRESS, 4);
-    vm::register_io_region(vm, dev.clone(), PCI_CONFIG_DATA, 4);
+    vm::register_io_region(dev.clone(), PCI_CONFIG_ADDRESS, 4);
+    vm::register_io_region(dev.clone(), PCI_CONFIG_DATA, 4);
 }
 

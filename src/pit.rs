@@ -651,12 +651,12 @@ impl vm::io_handler for PITDev
     }
 }
 
-pub fn init(vm: &mut vm::vm)
+pub fn init()
 {
 	let dev = Rc::new(PITDev {
         pit: RefCell::new(PIT::new()),
     });
 
-    vm::register_io_region(vm, dev.clone(), PIT_CH0, 4);
+    vm::register_io_region(dev.clone(), PIT_CH0, 4);
 }
 

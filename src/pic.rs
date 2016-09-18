@@ -192,15 +192,15 @@ impl vm::io_handler for PICDev
     }
 }
 
-pub fn init(vm: &mut vm::vm)
+pub fn init()
 {
 	let dev = Rc::new(PICDev {
         pic: RefCell::new(PIC::new()),
     });
 
-    vm::register_io_region(vm, dev.clone(), PIC_MASTER_CMD, 1);
-    vm::register_io_region(vm, dev.clone(), PIC_MASTER_DATA, 1);
-    vm::register_io_region(vm, dev.clone(), PIC_SLAVE_CMD, 1);
-    vm::register_io_region(vm, dev.clone(), PIC_SLAVE_DATA, 1);
+    vm::register_io_region(dev.clone(), PIC_MASTER_CMD, 1);
+    vm::register_io_region(dev.clone(), PIC_MASTER_DATA, 1);
+    vm::register_io_region(dev.clone(), PIC_SLAVE_CMD, 1);
+    vm::register_io_region(dev.clone(), PIC_SLAVE_DATA, 1);
 }
 

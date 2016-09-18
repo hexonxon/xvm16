@@ -5,6 +5,7 @@
 use hypervisor_framework::*;
 use std::sync::Arc;
 use std::rc::Rc;
+use std::mem;
 use rlibc::*;
 
 extern "C" {
@@ -84,10 +85,6 @@ pub struct io_region
 /*
  * VM state 
  *
- * HV framework internally creates a single global VM context for process which means 
- * that dynamic instanses of this struct don't really make sense.
- * However, rust makes it hard to work with globals, so we will have dynamic instance.
- *
  * TODO: drop trait to clean up and call hv_vm_destroy
  * TODO: a better lookup for memory mappings
  */
@@ -95,12 +92,47 @@ pub struct vm {
     /* HV vcpu id */
     pub vcpu: hv_vcpuid_t,
 
-    /* Mapped memory regions, simple vector for now */
+    /* Mapped memory regions */
     pub memory: Vec<memory_mapping>,
 
+    /* Registred PIO regions */
     pub io: Vec<io_region>,
 }
 
+/*
+ * Unsafe heap pointer to global VM state
+ *
+ * HV framework internally creates a single global VM context for process context which means 
+ * that dynamic instanses of this struct don't really make sense.
+ *
+ * Use get_vm() to safely unwrap this pointer.
+ *
+ * TODO: We are single threaded now, but remeber to add proper sync in case of multiple threads
+ */
+static mut VM: Option<*mut vm> = Option::None;
+
+fn get_vm() -> &'static mut vm
+{
+    unsafe {
+        mem::transmute(VM.unwrap())
+    }
+}
+
+pub fn create()
+{
+    unsafe {
+        let res = hv_vm_create(HV_VM_DEFAULT);
+        assert!(res == HV_SUCCESS);
+
+        let vm = vm {
+                    vcpu: vcpu_create(),
+                    memory: Vec::new(),
+                    io: Vec::new()
+        };
+
+        VM = Option::Some(mem::transmute(Box::new(vm)));
+    }
+}
 
 fn alloc_pages(size: usize) -> hv_uvaddr_t 
 {
@@ -111,25 +143,31 @@ fn alloc_pages(size: usize) -> hv_uvaddr_t
     }
 }
 
+pub fn vcpu() -> hv_vcpuid_t
+{
+    //VM.unwrap().vcpu
+    get_vm().vcpu
+}
+
 pub fn alloc_memory_region(size: usize) -> Arc<memory_region>
 {
     let va = alloc_pages(size);
     Arc::new(memory_region { size: size, data: va })
 }
 
-pub fn map_memory_region(vm: &mut vm, base: hv_gpaddr_t, flags: hv_memory_flags_t, region: Arc<memory_region>)
+pub fn map_memory_region(base: hv_gpaddr_t, flags: hv_memory_flags_t, region: Arc<memory_region>)
 {
     unsafe {
         let res = hv_vm_map(region.data, base, region.size, flags);
         assert!(res == HV_SUCCESS);
     }
 
-    vm.memory.push(memory_mapping { region: region, base: base, flags: flags });
+    get_vm().memory.push(memory_mapping { region: region, base: base, flags: flags });
 }
 
-pub fn find_memory_mapping<'a>(vm: &'a vm, addr: hv_gpaddr_t) -> Option<&'a memory_mapping>
+pub fn find_memory_mapping(addr: hv_gpaddr_t) -> Option<&'static memory_mapping>
 {
-    for i in &vm.memory {
+    for i in &get_vm().memory {
         if addr >= i.base && addr < i.base + i.region.size as u64 {
             return Some(i);
         }
@@ -138,25 +176,15 @@ pub fn find_memory_mapping<'a>(vm: &'a vm, addr: hv_gpaddr_t) -> Option<&'a memo
     return None;
 }
 
-pub fn read_guest_memory(vm: &vm, addr: hv_gpaddr_t, buf: &mut [u8]) -> usize 
+pub fn read_guest_memory(addr: hv_gpaddr_t, buf: &mut [u8]) -> usize
 {
-    let mapping = match find_memory_mapping(vm, addr) {
+    let mapping = match find_memory_mapping(addr) {
         Some(mapping) => mapping,
         None => return 0,
     };
 
     assert!(addr >= mapping.base);
     mapping.region.read_bytes((addr - mapping.base) as usize, buf)
-}
-
-pub fn create() -> vm
-{
-    unsafe {
-        let res = hv_vm_create(HV_VM_DEFAULT);
-        assert!(res == HV_SUCCESS);
-    }
-
-    vm { vcpu: vcpu_create(), memory: Vec::new(), io: Vec::new() }
 }
 
 pub fn vcpu_create() -> hv_vcpuid_t 
@@ -176,10 +204,10 @@ pub fn run(vcpu: hv_vcpuid_t) -> hv_return_t
     }
 }
 
-pub fn register_io_region(vm: &mut vm, handler: Rc<io_handler>, base: u16, len: u8)
+pub fn register_io_region(handler: Rc<io_handler>, base: u16, len: u8)
 {
     // TODO: check if range intersects
-    vm.io.push(io_region { 
+    get_vm().io.push(io_region {
         ops: handler,
         base: base,
         size: len
@@ -226,9 +254,9 @@ impl IoOperandType {
     }
 }
 
-pub fn handle_io_read(vm: &mut vm, port: u16, size: u8) -> IoOperandType
+pub fn handle_io_read(port: u16, size: u8) -> IoOperandType
 {
-    for i in &mut vm.io {
+    for i in &mut get_vm().io {
         if port == i.base {
             return i.ops.io_read(port, size);
         }
@@ -237,9 +265,9 @@ pub fn handle_io_read(vm: &mut vm, port: u16, size: u8) -> IoOperandType
     panic!("Unhandled IO read from port {:x}", port);
 }
 
-pub fn handle_io_write(vm: &mut vm, port: u16, data: IoOperandType)
+pub fn handle_io_write(port: u16, data: IoOperandType)
 {
-    for i in &mut vm.io {
+    for i in &mut get_vm().io {
         if port == i.base {
             i.ops.io_write(port, data);
             return;

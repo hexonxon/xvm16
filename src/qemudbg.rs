@@ -41,12 +41,12 @@ impl vm::io_handler for qemudbg
     }
 }
 
-pub fn init(vm: &mut vm::vm)
+pub fn init()
 {
     let dev = Rc::new(qemudbg {
         file: RefCell::new(File::create(QEMUDBG_OUTPUT_FILE).unwrap()),
     });
 
-    vm::register_io_region(vm, dev, 0x402, 1);
+    vm::register_io_region(dev, 0x402, 1);
 }
 

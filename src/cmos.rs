@@ -393,13 +393,13 @@ impl vm::io_handler for CMOSDev
     }
 }
 
-pub fn init(vm: &mut vm::vm) 
+pub fn init()
 { 
 	let dev = Rc::new(CMOSDev {
         cmos: RefCell::new(CMOS::new()),
     });
 
-    vm::register_io_region(vm, dev.clone(), CMOS_SELECT_PORT, 1);
-    vm::register_io_region(vm, dev.clone(), CMOS_DATA_PORT, 1);
+    vm::register_io_region(dev.clone(), CMOS_SELECT_PORT, 1);
+    vm::register_io_region(dev.clone(), CMOS_DATA_PORT, 1);
 }
 

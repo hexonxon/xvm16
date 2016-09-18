@@ -27,29 +27,29 @@ impl vm::io_handler for miscdev
     }
 }
 
-pub fn init(vm: &mut vm::vm) 
+pub fn init()
 {
     let a20 = Rc::new(miscdev {
         val: RefCell::new(vm::IoOperandType::byte(0x04)), // A20 enabled
     });
-    vm::register_io_region(vm, a20, 0x92, 1);
+    vm::register_io_region(a20, 0x92, 1);
 
     let fwcfg1 = Rc::new(miscdev {
         val: RefCell::new(vm::IoOperandType::word(0)),
     });
-    vm::register_io_region(vm, fwcfg1, 0x510, 2);
+    vm::register_io_region(fwcfg1, 0x510, 2);
 
     let fwcfg2 = Rc::new(miscdev {
         val: RefCell::new(vm::IoOperandType::byte(0)),
     });
-    vm::register_io_region(vm, fwcfg2, 0x511, 1);
+    vm::register_io_region(fwcfg2, 0x511, 1);
 
     let dma = Rc::new(miscdev {
         val: RefCell::new(vm::IoOperandType::byte(0)),
     });
-    vm::register_io_region(vm, dma.clone(), 0xd, 1);
-    vm::register_io_region(vm, dma.clone(), 0xda, 1);
-    vm::register_io_region(vm, dma.clone(), 0xd6, 1);
-    vm::register_io_region(vm, dma.clone(), 0xd4, 1);
+    vm::register_io_region(dma.clone(), 0xd, 1);
+    vm::register_io_region(dma.clone(), 0xda, 1);
+    vm::register_io_region(dma.clone(), 0xd6, 1);
+    vm::register_io_region(dma.clone(), 0xd4, 1);
 }
 

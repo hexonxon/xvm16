@@ -202,13 +202,13 @@ fn get_capstone_mode(vcpu: hv_vcpuid_t) -> capstone::constants::CsMode {
     }
 }
 
-fn dump_guest_code(vm: &vm::vm, pa: hv_gpaddr_t)
+fn dump_guest_code(pa: hv_gpaddr_t)
 {
     const CODE_SIZE: usize = 32;
     let addr = pa;
     let mut buf: [u8; CODE_SIZE] = [0; CODE_SIZE];
-    let bytes = vm::read_guest_memory(vm, addr, &mut buf);
-    let mode = get_capstone_mode(vm.vcpu);
+    let bytes = vm::read_guest_memory(addr, &mut buf);
+    let mode = get_capstone_mode(vm::vcpu());
 
     let cs = match capstone::Capstone::new(capstone::CsArch::ARCH_X86, mode) {
         Ok(cs) => cs,
@@ -286,8 +286,8 @@ fn main()
     SimpleLogger::init().unwrap();
     
     // Init VM for this process
-    let mut vm = vm::create();
-    let vcpu = vm.vcpu;
+    vm::create();
+    let vcpu = vm::vcpu();
 
     // Dump capabilities for debugging
     debug!("HV_VMX_CAP_PINBASED:      {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_PINBASED));
@@ -298,7 +298,7 @@ fn main()
 
     // Create real mode memory region covering 640KB
     let ram_region = vm::alloc_memory_region(0xA0000);
-    vm::map_memory_region(&mut vm, 0x0, HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC, ram_region.clone());
+    vm::map_memory_region(0x0, HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC, ram_region.clone());
 
     // Put software breakpoints everywhere
     unsafe {
@@ -310,24 +310,22 @@ fn main()
     assert!((rom_region.size & 0xFFFF) == 0); // BIOS image should be aligned to real mode segment size
 
     // First rom mapping goes to upper memory
-    vm::map_memory_region(&mut vm, 
-                         0x100000000u64.checked_sub(rom_region.size as u64).unwrap(), 
-                         HV_MEMORY_READ | HV_MEMORY_EXEC, 
-                         rom_region.clone());
+    vm::map_memory_region(0x100000000u64.checked_sub(rom_region.size as u64).unwrap(),
+                          HV_MEMORY_READ | HV_MEMORY_EXEC,
+                          rom_region.clone());
 
     // Second rom mapping goes right below first megabyte
-    vm::map_memory_region(&mut vm, 
-                         0x100000u64.checked_sub(rom_region.size as u64).unwrap(), 
-                         HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC, 
-                         rom_region.clone());
+    vm::map_memory_region(0x100000u64.checked_sub(rom_region.size as u64).unwrap(),
+                          HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC,
+                          rom_region.clone());
 
     // Register IO handlers
-    qemudbg::init(&mut vm);
-    miscdev::init(&mut vm);
-    cmos::init(&mut vm);
-    pic::init(&mut vm);
-    pit::init(&mut vm);
-    pci::init(&mut vm);
+    qemudbg::init();
+    miscdev::init();
+    cmos::init();
+    pic::init();
+    pit::init();
+    pci::init();
 
     // Init vcpu
     wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_PIN_BASED, check_capability(hv_vmx_capability_t::HV_VMX_CAP_PINBASED, 0
@@ -434,7 +432,7 @@ fn main()
         let reason: hv_vmx_exit_reason = hv_vmx_exit_reason::from_u32(exit_reason).unwrap();
 
         dump_guest_state(vcpu);
-        dump_guest_code(&vm, ip);
+        dump_guest_code(ip);
 
         match reason {
             hv_vmx_exit_reason::VMX_REASON_EXC_NMI => {
@@ -473,9 +471,9 @@ fn main()
                     };
 
                     match size {
-                        1 => eax.set_u8(vm::handle_io_read(&mut vm, port, size).unwrap_byte()),
-                        2 => eax.set_u16(vm::handle_io_read(&mut vm, port, size).unwrap_word()),
-                        4 => eax.set_u32(vm::handle_io_read(&mut vm, port, size).unwrap_dword()),
+                        1 => eax.set_u8(vm::handle_io_read(port, size).unwrap_byte()),
+                        2 => eax.set_u16(vm::handle_io_read(port, size).unwrap_word()),
+                        4 => eax.set_u32(vm::handle_io_read(port, size).unwrap_dword()),
                         _ => panic!(),
                     }
 
@@ -488,9 +486,9 @@ fn main()
                     debug!("Writing {:?} to port {:x} size {}", eax, port, size);
 
                     match size {
-                        1 => vm::handle_io_write(&mut vm, port, vm::IoOperandType::byte(eax.as_u8())),
-                        2 => vm::handle_io_write(&mut vm, port, vm::IoOperandType::word(eax.as_u16())),
-                        4 => vm::handle_io_write(&mut vm, port, vm::IoOperandType::dword(eax.as_u32())),
+                        1 => vm::handle_io_write(port, vm::IoOperandType::byte(eax.as_u8())),
+                        2 => vm::handle_io_write(port, vm::IoOperandType::word(eax.as_u16())),
+                        4 => vm::handle_io_write(port, vm::IoOperandType::dword(eax.as_u32())),
                         _ => panic!(),
                     }
                 }
