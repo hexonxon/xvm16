@@ -256,7 +256,7 @@ impl IoOperandType {
 
 pub fn handle_io_read(port: u16, size: u8) -> IoOperandType
 {
-    for i in &mut get_vm().io {
+    for i in &get_vm().io {
         if port == i.base {
             return i.ops.io_read(port, size);
         }
@@ -267,7 +267,7 @@ pub fn handle_io_read(port: u16, size: u8) -> IoOperandType
 
 pub fn handle_io_write(port: u16, data: IoOperandType)
 {
-    for i in &mut get_vm().io {
+    for i in &get_vm().io {
         if port == i.base {
             i.ops.io_write(port, data);
             return;
