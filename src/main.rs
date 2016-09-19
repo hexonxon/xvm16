@@ -11,6 +11,7 @@ extern crate hypervisor_framework;
 #[macro_use]
 extern crate log;
 
+mod util;
 mod qemudbg;
 mod miscdev;
 mod cmos;
