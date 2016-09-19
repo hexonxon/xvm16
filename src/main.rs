@@ -281,6 +281,14 @@ fn wait_any_key()
 
 }
 
+fn is_interruptible(vcpu: hv_vcpuid_t) -> bool
+{
+    let flags = read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RFLAGS);
+    let intstate = rvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_IGNORE_IRQ);
+
+    return (intstate == 0) && (flags & (1 << 9)) != 0;
+}
+
 fn main() 
 {
     // Init logger
@@ -552,6 +560,17 @@ fn main()
                 panic!("Unhandled exit reason");
             }
 
+        }
+
+        /* Inject pending external interrupts */
+        if is_interruptible(vcpu) {
+            match vm::next_external_interrupt() {
+                Some(excp) => {
+                    let event = 0x80000000_u32 | excp as u32;
+                    wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_VMENTRY_IRQ_INFO, event);
+                },
+                None => {},
+            }
         }
 
         if cfg!(feature = "guest-tracing") {

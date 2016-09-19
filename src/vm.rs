@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::rc::Rc;
 use std::mem;
 use rlibc::*;
+use util::bitmap::*;
 
 extern "C" {
     fn valloc(size: usize) -> *mut ::std::os::raw::c_void;
@@ -82,6 +83,18 @@ pub struct io_region
     ops: Rc<io_handler>,
 }
 
+/**
+ * Interrupt controller trait
+ */
+pub trait interrupt_controller
+{
+    /**
+     * Assert given IRQ line.
+     * \param vec   IRQ line to assert
+     */
+    fn assert_irq(&self, irq: u8);
+}
+
 /*
  * VM state 
  *
@@ -91,6 +104,10 @@ pub struct io_region
 struct vm {
     /* HV vcpu id */
     vcpu: hv_vcpuid_t,
+
+    /* Interrupt state */
+    pic: Option<Rc<interrupt_controller>>,
+    pending_ext_ints: Bitmap,
 
     /* Mapped memory regions */
     memory: Vec<memory_mapping>,
@@ -118,6 +135,11 @@ fn get_vm() -> &'static mut vm
     }
 }
 
+fn get_pic() -> Rc<interrupt_controller>
+{
+    get_vm().pic.clone().unwrap()
+}
+
 pub fn create()
 {
     unsafe {
@@ -126,11 +148,36 @@ pub fn create()
 
         let vm = vm {
                     vcpu: vcpu_create(),
+                    pic: Option::None,
+                    pending_ext_ints: Bitmap::new(256),
                     memory: Vec::new(),
                     io: Vec::new()
         };
 
         VM = Option::Some(mem::transmute(Box::new(vm)));
+    }
+}
+
+pub fn register_interrupt_controller(pic: Rc<interrupt_controller>)
+{
+    get_vm().pic = Option::Some(pic);
+}
+
+pub fn assert_irq(vec: u8)
+{
+    get_pic().assert_irq(vec);
+}
+
+pub fn raise_external_interrupt(vec: u8)
+{
+    get_vm().pending_ext_ints.set(vec as usize);
+}
+
+pub fn next_external_interrupt() -> Option<u8>
+{
+    match get_vm().pending_ext_ints.bsf() {
+        Some(vec) => Option::Some(vec as u8),
+        None => Option::None,
     }
 }
 
