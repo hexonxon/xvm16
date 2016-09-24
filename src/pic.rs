@@ -52,10 +52,6 @@ impl I8259A
         self.next_icw == 1
     }
 
-    fn offset(&self) -> u8 {
-        self.offset
-    }
-
     fn slave_irq(&self) -> u8 {
         self.icw3
     }
@@ -224,7 +220,8 @@ mod i8259a_test
 
     /* Init with ICW4 */
     #[test] fn init() {
-        let mut dev = init_common(0x08, 0xAB, 0x02);
+        let dev = init_common(0x08, 0xAB, 0x02);
+        assert!(dev.is_initialized());
     }
 }
 
