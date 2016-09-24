@@ -168,6 +168,11 @@ pub fn assert_irq(vec: u8)
     get_pic().assert_irq(vec);
 }
 
+pub fn has_pending_interrupts() -> bool
+{
+    get_vm().pending_ext_ints.has_any_set()
+}
+
 pub fn raise_external_interrupt(vec: u8)
 {
     get_vm().pending_ext_ints.set(vec as usize);

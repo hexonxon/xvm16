@@ -289,6 +289,20 @@ fn is_interruptible(vcpu: hv_vcpuid_t) -> bool
     return (intstate == 0) && (flags & (1 << 9)) != 0;
 }
 
+fn request_interrupt_window(vcpu: hv_vcpuid_t)
+{
+    let ctrls = check_capability(hv_vmx_capability_t::HV_VMX_CAP_PROCBASED,
+                                 rvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CPU_BASED) | CPU_BASED_IRQ_WND);
+    wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CPU_BASED, ctrls);
+}
+
+fn complete_interrupt_window(vcpu: hv_vcpuid_t)
+{
+    let ctrls = check_capability(hv_vmx_capability_t::HV_VMX_CAP_PROCBASED,
+                                 rvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CPU_BASED) & !CPU_BASED_IRQ_WND);
+    wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CPU_BASED, ctrls);
+}
+
 fn main() 
 {
     // Init logger
@@ -556,20 +570,32 @@ fn main()
             }
 
 
+            hv_vmx_exit_reason::VMX_REASON_IRQ_WND => {
+                debug!("VMX_REASON_IRQ_WND");
+
+                /* Close interrupt window here - we will inject interrupts before returning to guest */
+                complete_interrupt_window(vcpu);
+            }
+
             _ => {
                 panic!("Unhandled exit reason");
             }
 
         }
 
-        /* Inject pending external interrupts */
-        if is_interruptible(vcpu) {
-            match vm::next_external_interrupt() {
-                Some(excp) => {
-                    let event = 0x80000000_u32 | excp as u32;
-                    wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_VMENTRY_IRQ_INFO, event);
-                },
-                None => {},
+        /* Inject pending external interrupts or request interrupt window if guest is not
+         * interruptible */
+        if vm::has_pending_interrupts() {
+            if !is_interruptible(vcpu) {
+                request_interrupt_window(vcpu);
+            } else {
+                match vm::next_external_interrupt() {
+                    Some(excp) => {
+                        let event = 0x80000000_u32 | excp as u32;
+                        wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_VMENTRY_IRQ_INFO, event);
+                    },
+                    None => {},
+                }
             }
         }
 

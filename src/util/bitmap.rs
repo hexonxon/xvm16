@@ -59,6 +59,16 @@ impl Bitmap
         }
     }
 
+    pub fn has_any_set(&self) -> bool {
+        for i in &self.data {
+            if *i != 0 {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     fn bsf32(val: u32) -> usize {
         assert!(val != 0);
 
@@ -181,4 +191,13 @@ fn bitmap_clear_all_test() {
     for i in 0..bits {
         assert!(!map.is_set(i));
     }
+}
+
+#[test]
+fn bitmap_has_any_set_test() {
+    let mut map = Bitmap::new(100);
+    assert!(!map.has_any_set());
+
+    map.set(0);
+    assert!(map.has_any_set());
 }
