@@ -173,6 +173,11 @@ pub fn raise_external_interrupt(vec: u8)
     get_vm().pending_ext_ints.set(vec as usize);
 }
 
+pub fn cancel_all_external_interrupts()
+{
+    get_vm().pending_ext_ints.clear_all();
+}
+
 pub fn next_external_interrupt() -> Option<u8>
 {
     match get_vm().pending_ext_ints.bsf() {

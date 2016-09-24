@@ -53,6 +53,12 @@ impl Bitmap
         self.data[bit >> 3] &= !mask;
     }
 
+    pub fn clear_all(&mut self) {
+        unsafe {
+            ptr::write_bytes(self.data.as_mut_ptr(), 0, self.size);
+        }
+    }
+
     fn bsf32(val: u32) -> usize {
         assert!(val != 0);
 
@@ -159,4 +165,20 @@ fn bitmap_bsf_test() {
 
     let res = map.bsf();
     assert!(res.is_some() && res.unwrap() == 42);
+}
+
+#[test]
+fn bitmap_clear_all_test() {
+    let bits = 100;
+    let mut map = Bitmap::new(bits);
+
+    for i in 0..bits {
+        map.set(i);
+        assert!(map.is_set(i));
+    }
+
+    map.clear_all();
+    for i in 0..bits {
+        assert!(!map.is_set(i));
+    }
 }
