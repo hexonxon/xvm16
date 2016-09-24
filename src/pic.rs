@@ -29,7 +29,6 @@ struct I8259A
     isr: u8,    // ISR register
     offset: u8, // Interrupt vector base
     mask: u8,   // IRQ mask
-    icw1: u8,   // ICW1 value during initialization
     icw3: u8,   // ICW3 value during initialization (cascade IRQ)
     next_icw: usize,    // During init, next ICW word expected during init
     cmd_latch: u8,      // Latched value to be read next time from command port
@@ -43,7 +42,6 @@ impl I8259A
             isr: 0,
             offset: 0,
             mask: 0xff,
-            icw1: ICW1_INIT | ICW1_ICW4,
             icw3: 0,
             next_icw: 0,
             cmd_latch: 0,
@@ -89,10 +87,9 @@ impl I8259A
         if cmd & ICW1_INIT != 0 {
             /* 
              * Start initialization 
-             * We support only ICW1 + ICW4
+             * We support only ICW1 + ICW4 (and ICW4 should set 8086 tyoe)
              */
             assert!(cmd & !(ICW1_INIT | ICW1_ICW4) == 0);
-            self.icw1 = cmd;
             self.next_icw = 2;
         } else if cmd == PIC_READ_IRR {
             self.cmd_latch = self.irr;
@@ -120,20 +117,16 @@ impl I8259A
 
             3 => {
                 self.icw3 = data;
-                if self.icw1 & ICW1_ICW4 != 0 {
-                    self.next_icw = 4;
-                } else {
-                    self.next_icw = 1;
-                }
+                self.next_icw = 4;
             },
 
             4 => {
                 assert!(data == ICW4_8086); /* Just check that ICW4 is the only one we support */
-                self.next_icw = 1;
+                self.next_icw = 1; /* Init sequence complete */
             },
 
             _ => {
-                self.mask = data; /* Writes go to mask by default */
+                self.mask = data; /* Outside init sequence all writes go to IMR by default */
             }
         }
     }
@@ -181,27 +174,20 @@ mod i8259a_test
 {
     use super::I8259A;
 
-    fn init(offset: u8, mask: u8, cascade: u8, use_icw4: bool) -> I8259A {
+    fn init_common(offset: u8, mask: u8, cascade: u8) -> I8259A {
         let mut dev = I8259A::default();
         assert!(!dev.is_initialized());
 
-        if use_icw4 {
-            dev.write_command(super::ICW1_INIT | super::ICW1_ICW4);
-        } else {
-            dev.write_command(super::ICW1_INIT);
-        }
+        dev.write_command(super::ICW1_INIT | super::ICW1_ICW4);
         assert!(!dev.is_initialized());
 
         dev.write_data(offset);
         assert!(!dev.is_initialized());
 
         dev.write_data(cascade);
+        assert!(!dev.is_initialized());
 
-        if use_icw4 {
-            assert!(!dev.is_initialized());
-            dev.write_data(super::ICW4_8086);
-        }
-
+        dev.write_data(super::ICW4_8086);
         assert!(dev.is_initialized());
 
         dev.write_data(mask);
@@ -211,13 +197,8 @@ mod i8259a_test
     }
 
     /* Init with ICW4 */
-    #[test] fn init_icw4() {
-        let mut dev = init(0x08, 0xAB, 0x02, true);
-    }
-
-    /* Init without ICW4 */
-    #[test] fn init_no_icw4() {
-        let mut dev = init(0x08, 0xAB, 0x02, true);
+    #[test] fn init() {
+        let mut dev = init_common(0x08, 0xAB, 0x02);
     }
 }
 
