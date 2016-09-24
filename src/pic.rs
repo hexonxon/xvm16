@@ -40,7 +40,7 @@ impl I8259A
         I8259A { 
             irr: 0,
             isr: 0,
-            imr: 0xff,
+            imr: 0,
             offset: 0,
             icw3: 0,
             next_icw: 0,
@@ -85,12 +85,30 @@ impl I8259A
     /* Write to command port */
     fn write_command(&mut self, cmd: u8) {
         if cmd & ICW1_INIT != 0 {
-            /* 
-             * Start initialization 
-             * We support only ICW1 + ICW4 (and ICW4 should set 8086 tyoe)
-             */
+            /* Start initialization
+             * We support only ICW1 + ICW4 (and ICW4 should set 8086 tyoe) */
             assert!(cmd & !(ICW1_INIT | ICW1_ICW4) == 0);
             self.next_icw = 2;
+            self.imr = 0;
+
+            /* What happens to raised but not yet injected guest interrupts at this point?
+             * Intel spec is not entirely clear on that regard, however continuing to deliver
+             * those interrupts can be bad since guest might now change IRQ offsets
+             * and, accordingly, it's IDT.
+             *
+             * We can't yet reinject any of those interrupts since we don't know new offsets, so we
+             * do that in following steps:
+             * 1. Cancel any interrupts that might have been raised according to our current IRR.
+             *    Don't touch IRR value.
+             * 2. Upon completed init reinject all pending IRR interrupts with updated offsets.
+             */
+            if self.irr != 0 {
+                vm::cancel_all_external_interrupts();
+            }
+
+            /* Also, what if an interrupt was delivered (ISR != 0) but not EOI-ed by the guest?
+             * Stricktly speaking this is a guest bug.
+             * It might deliver a racy EOI after init so let's keep ISR hanging as well */
         } else if cmd == PIC_READ_IRR {
             self.cmd_latch = self.irr;
         } else if cmd == PIC_READ_ISR {
@@ -123,6 +141,14 @@ impl I8259A
             4 => {
                 assert!(data == ICW4_8086); /* Just check that ICW4 is the only one we support */
                 self.next_icw = 1; /* Init sequence complete */
+
+                /* Re-inject pre-reset pending interrupts from IRR.
+                 * See comments in write_command ICW1 */
+                for i in 0..8 {
+                    if (self.irr & (1_u8 << i)) != 0 {
+                        vm::raise_external_interrupt(i + self.offset);
+                    }
+                }
             },
 
             _ => {
