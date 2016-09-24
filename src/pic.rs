@@ -27,8 +27,8 @@ struct I8259A
 {
     irr: u8,    // IRR register
     isr: u8,    // ISR register
+    imr: u8,    // IRQ mask
     offset: u8, // Interrupt vector base
-    mask: u8,   // IRQ mask
     icw3: u8,   // ICW3 value during initialization (cascade IRQ)
     next_icw: usize,    // During init, next ICW word expected during init
     cmd_latch: u8,      // Latched value to be read next time from command port
@@ -40,8 +40,8 @@ impl I8259A
         I8259A { 
             irr: 0,
             isr: 0,
+            imr: 0xff,
             offset: 0,
-            mask: 0xff,
             icw3: 0,
             next_icw: 0,
             cmd_latch: 0,
@@ -69,7 +69,7 @@ impl I8259A
         }
 
         let mask = 1u8 << irq;
-        if (self.mask & mask) != 0 {
+        if (self.imr & mask) != 0 {
             return;
         }
 
@@ -126,14 +126,14 @@ impl I8259A
             },
 
             _ => {
-                self.mask = data; /* Outside init sequence all writes go to IMR by default */
+                self.imr = data; /* Outside init sequence all writes go to IMR by default */
             }
         }
     }
 
     /* Read from data port */
     fn read_data(&mut self) -> u8 {
-        self.mask
+        self.imr
     }
 }
 
