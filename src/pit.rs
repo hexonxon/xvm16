@@ -657,6 +657,8 @@ pub fn init()
         pit: RefCell::new(PIT::new()),
     });
 
-    vm::register_io_region(dev.clone(), PIT_CH0, 4);
+    vm::register_io_region(dev.clone(), PIT_CH0, 1);
+    vm::register_io_region(dev.clone(), PIT_CH1, 1);
+    vm::register_io_region(dev.clone(), PIT_CH2, 1);
+    vm::register_io_region(dev.clone(), PIT_CMD, 1);
 }
-

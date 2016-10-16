@@ -110,7 +110,17 @@ impl I8259A
         } else if cmd == PIC_READ_ISR {
             self.cmd_latch = self.isr;
         } else if cmd == PIC_EOI {
-            self.isr = 0; /* Maybe last sent only? */
+            if self.isr != 0 {
+                /* TODO: abstract away (and optimize) bsf */
+                let mut isr = self.isr;
+                let mut pos = 0;
+                while (isr & 0x1) == 0 {
+                    pos += 1;
+                    isr >>= 1;
+                }
+
+                self.isr = self.isr & !(1 << pos);
+            }
         } else {
             debug!("Unsupported PIC command {:x}", cmd);
         }
@@ -186,6 +196,10 @@ impl PIC
             self.master.assert_irq(slave_irq);
             self.slave.assert_irq(irq - 8);
         }
+    }
+
+    fn ack(&mut self, vec: u8) {
+        unimplemented!();
     }
 }
 
@@ -275,6 +289,12 @@ impl vm::interrupt_controller for PICDev
     {
         let mut dev = self.pic.borrow_mut();
         dev.assert_irq(irq)
+    }
+
+    fn ack(&self, vec: u8)
+    {
+        let mut dev = self.pic.borrow_mut();
+        dev.ack(vec)
     }
 }
 

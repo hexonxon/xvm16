@@ -90,9 +90,15 @@ pub trait interrupt_controller
 {
     /**
      * Assert given IRQ line.
-     * \param vec   IRQ line to assert
+     * \param irq   IRQ line to assert
      */
     fn assert_irq(&self, irq: u8);
+
+    /**
+     * Notify interrupt controller that interrupt vector has been injected in guest
+     * \param vec   Interrupt vector that was previously raise with raise_external_interrupt
+     */
+    fn ack(&self, vec: u8);
 }
 
 /*
@@ -186,7 +192,13 @@ pub fn cancel_all_external_interrupts()
 pub fn next_external_interrupt() -> Option<u8>
 {
     match get_vm().pending_ext_ints.bsf() {
-        Some(vec) => Option::Some(vec as u8),
+        Some(vec) => {
+            /* ACK interrupt */
+            get_vm().pending_ext_ints.clear(vec);
+            get_pic().ack(vec as u8);
+            return Option::Some(vec as u8);
+        }
+
         None => Option::None,
     }
 }
