@@ -395,7 +395,10 @@ fn init(vcpu: hv_vcpuid_t, bootimg: &String, has_bios: bool)
     wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CR0_MASK, 0x1);
 
     wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CR3, 0x0);
-    wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CR4, 0x2000);
+
+    wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CR4, 0x2200);
+    wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CR4_MASK, 0);
+    wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CR4_SHADOW, 0);
 
     write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RFLAGS, 0x2 /*| (1u64 << 8)*/);
     write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RSP, 0x0);
