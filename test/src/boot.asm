@@ -1,33 +1,34 @@
 ;
 ;   Test kernel entry point
-;   Segment descriptors set to flat 32-bit space loaded at 0x10000
+;   We start in real mode at 0h:8000h with no firmware
 ;
 
-%define BASE 0x10000
-%define STACK_TOP (BASE - 1)
+section .boot
 
 extern rust_main
-global _entry32
+global _entry16
 
-;org 0x10000
-section .entry32
-use32
+%define BASE 0x8000
+%define STACK_TOP (BASE - 1)
 
-_entry32:
-    ; Set our own GDT and IDT first so we can touch segment registers
+use16
+_entry16:
+    ; Enter protected mode
     cli
     lgdt    [gdtr]
     lidt    [idtr]
+    mov     eax, cr0
+    or      eax, 1
+    mov     cr0, eax
+    jmp     0x08:_entry32
+
+use32
+_entry32:
     mov     ax, 0x10    
     mov     ds, ax
     mov     es, ax
     mov     ss, ax
     mov     esp, STACK_TOP
-    push    0x0
-    push    .L1
-    retf
-
-.L1:
     call    rust_main   
 
 .halt:

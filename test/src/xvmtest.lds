@@ -1,13 +1,13 @@
-ENTRY(_entry32)
+ENTRY(_entry16)
 
 SECTIONS 
 {
-    . = 0x10000;
+    . = 0x8000;
 
     .text :
     {
-        *(.entry32)
-        *(.text)
+        *(.boot)
+        *(.text*)
     }
     . = ALIGN(4096);
 
