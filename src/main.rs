@@ -25,6 +25,7 @@ use rlibc::*;
 use std::sync::Arc;
 use std::fs::*;
 use std::io::Read;
+use std::env;
 use log::*;
 use num::traits::*;
 
@@ -231,7 +232,7 @@ fn dump_guest_code(pa: hv_gpaddr_t)
     }
 }
 
-fn load_rom_image(path: &str) -> Arc<vm::memory_region>
+fn load_image(path: &str) -> Vec<u8>
 {
     let mut file = match File::open(path) {
         Ok(file) => file,
@@ -239,23 +240,27 @@ fn load_rom_image(path: &str) -> Arc<vm::memory_region>
     };
 
     let mut buffer = Vec::new();
-
     let nbytes = match file.read_to_end(&mut buffer) {
         Ok(usize) => usize,
         Err(err) => panic!(err.to_string()),
     };
 
-    debug!("ROM size {} bytes", nbytes);
-
-    let reg = vm::alloc_memory_region(nbytes);
-    if reg.write_bytes(0, &buffer[..]) != nbytes {
-        panic!();
-    }
-
-    return reg;
+    return buffer;
 }
 
-// TODO: move to vm
+fn make_ram_region(base: u64, size: usize) -> Arc<vm::memory_region>
+{
+    let ram_region = vm::alloc_memory_region(size);
+    vm::map_memory_region(base, HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC, ram_region.clone());
+
+    // Put software breakpoints everywhere
+    unsafe {
+        memset(ram_region.data as *mut u8, 0xCC, ram_region.size);
+    }
+
+    ram_region
+}
+
 fn next_instruction(vcpu: hv_vcpuid_t)
 {
     wvmcs(vcpu,
@@ -303,86 +308,46 @@ fn complete_interrupt_window(vcpu: hv_vcpuid_t)
     wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CPU_BASED, ctrls);
 }
 
-fn main() 
+fn init(vcpu: hv_vcpuid_t, bootimg: &String, has_bios: bool)
 {
-    // Init logger
-    SimpleLogger::init().unwrap();
-    
-    // Init VM for this process
-    vm::create();
-    let vcpu = vm::vcpu();
+    let kernel_base = 0x8000_u64;
+    let img = load_image(bootimg);
 
-    // Dump capabilities for debugging
-    debug!("HV_VMX_CAP_PINBASED:      {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_PINBASED));
-    debug!("HV_VMX_CAP_PROCBASED:     {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_PROCBASED));
-    debug!("HV_VMX_CAP_PROCBASED2:    {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_PROCBASED2));
-    debug!("HV_VMX_CAP_ENTRY:         {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_ENTRY));
-    debug!("HV_VMX_CAP_EXIT:          {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_EXIT));
+    if has_bios {
+        let ram = make_ram_region(0x0, 0xA0000);
 
-    // Create real mode memory region covering 640KB
-    let ram_region = vm::alloc_memory_region(0xA0000);
-    vm::map_memory_region(0x0, HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC, ram_region.clone());
+        assert!((img.len() & 0xFFFF) == 0); // BIOS image should be aligned to real mode segment size
+        let rom = vm::alloc_memory_region(img.len());
+        if rom.write_bytes(0, &img[..]) != img.len() {
+            panic!();
+        }
 
-    // Put software breakpoints everywhere
-    unsafe {
-        memset(ram_region.data as *mut u8, 0xCC, ram_region.size);
+        // First rom mapping goes to upper memory
+        vm::map_memory_region(0x100000000u64 - rom.size as u64, HV_MEMORY_READ | HV_MEMORY_EXEC, rom.clone());
+
+        // Second rom mapping goes right below first megabyte
+        vm::map_memory_region(0x100000u64 - rom.size as u64, HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC, rom.clone());
+    } else {
+        let ram = make_ram_region(0x0, 0x100000);
+        if ram.write_bytes(kernel_base as usize, &img[..]) != img.len() {
+            panic!();
+        }
     }
-
-    // Load bios rom and map it
-    let rom_region = load_rom_image("bios/bios.bin");
-    assert!((rom_region.size & 0xFFFF) == 0); // BIOS image should be aligned to real mode segment size
-
-    // First rom mapping goes to upper memory
-    vm::map_memory_region(0x100000000u64.checked_sub(rom_region.size as u64).unwrap(),
-                          HV_MEMORY_READ | HV_MEMORY_EXEC,
-                          rom_region.clone());
-
-    // Second rom mapping goes right below first megabyte
-    vm::map_memory_region(0x100000u64.checked_sub(rom_region.size as u64).unwrap(),
-                          HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC,
-                          rom_region.clone());
-
-    // Register IO handlers
-    qemudbg::init();
-    miscdev::init();
-    cmos::init();
-    pic::init();
-    pit::init();
-    pci::init();
-
-    // Init vcpu
-    wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_PIN_BASED, check_capability(hv_vmx_capability_t::HV_VMX_CAP_PINBASED, 0
-        /*| PIN_BASED_INTR*/
-        /*| PIN_BASED_NMI*/
-        /*| PIN_BASED_VIRTUAL_NMI*/));
-
-    wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CPU_BASED, check_capability(hv_vmx_capability_t::HV_VMX_CAP_PROCBASED, (0 
-        | CPU_BASED_HLT
-        | CPU_BASED_CR8_LOAD
-        | CPU_BASED_CR8_STORE
-        | CPU_BASED_SECONDARY_CTLS) as u32));
-    
-    wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CPU_BASED2, check_capability(hv_vmx_capability_t::HV_VMX_CAP_PROCBASED2, 0
-        /*| CPU_BASED2_EPT*/
-        | CPU_BASED2_UNRESTRICTED as u32));
-
-    wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_VMENTRY_CONTROLS, check_capability(hv_vmx_capability_t::HV_VMX_CAP_ENTRY, 0));
-    wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_VMEXIT_CONTROLS, check_capability(hv_vmx_capability_t::HV_VMX_CAP_EXIT, 0));
-
-    wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_EXC_BITMAP, 0 
-        | (1 << 1)
-        | (1 << 3)
-        );
-
-    wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CR0_MASK, 0x60000000);
-    wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CR0_SHADOW, 0);
-    wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CR4_MASK, 0);
-    wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CR4_SHADOW, 0);
 
     wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CS, 0);
     wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CS_LIMIT, 0xffff);
     wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CS_AR, 0x9b);
-    wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CS_BASE, 0xfffffff0);
+
+    if has_bios {
+        // Firmware entry at real mode CS:0 with CS.base = 0xFFFFFFF0
+        wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CS_BASE, 0xfffffff0);
+        write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RIP, 0x0);
+
+    } else {
+        // Kernel entry point at real mode 0h:8000h
+        wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CS_BASE, 0);
+        write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RIP, kernel_base);
+    }
 
     wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_DS, 0);
     wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_DS_LIMIT, 0xffff);
@@ -426,15 +391,72 @@ fn main()
     wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_IDTR_BASE, 0);
 
     wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CR0, 0x20);
+    wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CR0_SHADOW, 0x20);
+    wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CR0_MASK, 0x1);
+
     wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CR3, 0x0);
     wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CR4, 0x2000);
 
-    wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CR0_MASK, 0x1);
-    wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CR0_SHADOW, 0x20);
-
-    write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RIP, 0x0);
     write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RFLAGS, 0x2 /*| (1u64 << 8)*/);
     write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RSP, 0x0);
+}
+
+fn main()
+{
+    // Init logger
+    SimpleLogger::init().unwrap();
+
+    // Init VM for this process
+    vm::create();
+    let vcpu = vm::vcpu();
+
+    // Register IO handlers
+    qemudbg::init();
+    miscdev::init();
+    cmos::init();
+    pic::init();
+    pit::init();
+    pci::init();
+
+    // Dump capabilities for debugging
+    debug!("HV_VMX_CAP_PINBASED:      {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_PINBASED));
+    debug!("HV_VMX_CAP_PROCBASED:     {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_PROCBASED));
+    debug!("HV_VMX_CAP_PROCBASED2:    {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_PROCBASED2));
+    debug!("HV_VMX_CAP_ENTRY:         {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_ENTRY));
+    debug!("HV_VMX_CAP_EXIT:          {:x}", read_capability(hv_vmx_capability_t::HV_VMX_CAP_EXIT));
+
+    // Init vcpu
+    wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_PIN_BASED, check_capability(hv_vmx_capability_t::HV_VMX_CAP_PINBASED, 0
+        /*| PIN_BASED_INTR*/
+        /*| PIN_BASED_NMI*/
+        /*| PIN_BASED_VIRTUAL_NMI*/));
+
+    wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CPU_BASED, check_capability(hv_vmx_capability_t::HV_VMX_CAP_PROCBASED, (0
+        | CPU_BASED_HLT
+        | CPU_BASED_CR8_LOAD
+        | CPU_BASED_CR8_STORE
+        | CPU_BASED_SECONDARY_CTLS) as u32));
+
+    wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_CPU_BASED2, check_capability(hv_vmx_capability_t::HV_VMX_CAP_PROCBASED2, 0
+        /*| CPU_BASED2_EPT*/
+        | CPU_BASED2_UNRESTRICTED as u32));
+
+    wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_VMENTRY_CONTROLS, check_capability(hv_vmx_capability_t::HV_VMX_CAP_ENTRY, 0));
+    wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_VMEXIT_CONTROLS, check_capability(hv_vmx_capability_t::HV_VMX_CAP_EXIT, 0));
+
+    wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_EXC_BITMAP, 0
+        | (1 << 1)
+        | (1 << 3)
+        );
+
+    let args: Vec<String> = env::args().collect();
+    if args.len() > 1 {
+        debug!("Running test image {}", args[1]);
+        init(vcpu, &args[1], false);
+    } else {
+        debug!("Running firmware");
+        init(vcpu, &String::from("bios/bios.bin"), true);
+    }
 
     // Run vm loop
     loop {
@@ -452,7 +474,7 @@ fn main()
         debug!("\n----------");
         debug!("Exit reason {:x} ({})", exit_reason, exit_reason & 0xFFFF);
 
-        let reason: hv_vmx_exit_reason = hv_vmx_exit_reason::from_u32(exit_reason).unwrap();
+        let reason: hv_vmx_exit_reason = hv_vmx_exit_reason::from_u32(exit_reason & 0xFFFF).unwrap();
 
         dump_guest_state(vcpu);
         dump_guest_code(ip);
