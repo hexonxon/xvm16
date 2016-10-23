@@ -166,7 +166,7 @@ macro_rules! exception_handler {
                   push  esp + 16
                   push  $1
                   call  $0
-                  add   esp, 122
+                  add   esp, 12
                   pop  edx
                   pop  ecx
                   pop  eax
