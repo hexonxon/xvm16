@@ -9,13 +9,11 @@ all: $(IMG)
 $(IMG): $(KERNEL)
 	$(CROSS_PREFIX)objcopy -j .text -j .data -O binary $< $@
 
-$(KERNEL): $(LIB) $(BOOT) src/xvmtest.lds
+$(KERNEL): $(BOOT) src/xvmtest.lds cargo
 	$(CROSS_PREFIX)ld --gc-sections -T src/xvmtest.lds -o $@ $(BOOT) $(LIB)
 
 $(BOOT): src/boot.asm
 	nasm -f elf32 -o $@ $<
-
-$(LIB): cargo
 
 cargo:
 	rustup override add nightly
