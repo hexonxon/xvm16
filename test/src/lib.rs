@@ -1,10 +1,14 @@
-#![feature(lang_items)]
+#![feature(lang_items, asm)]
 #![no_std]
 
 extern crate rlibc;
 
+mod pio;
+#[macro_use] mod dbgprint;
+
 #[no_mangle]
 pub extern fn rust_main() {
+    dbgprintln!("Hello God. This is me, Jesus.");
     assert!(false);
 }
 

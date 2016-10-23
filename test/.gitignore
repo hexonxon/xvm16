@@ -1,1 +1,4 @@
 Cargo.lock
+xvmtest
+xvmtest.bin
+boot.o

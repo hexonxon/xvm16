@@ -13,7 +13,7 @@ SECTIONS
 
     .data :
     {
-        *(.data)
+        *(.data*)
         *(.rodata*)
         *(.bss)
     }
