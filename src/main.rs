@@ -402,6 +402,11 @@ fn init(vcpu: hv_vcpuid_t, bootimg: &String, has_bios: bool)
 
     write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RFLAGS, 0x2 /*| (1u64 << 8)*/);
     write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RSP, 0x0);
+
+    if cfg!(feature = "guest-tracing") {
+        write_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RFLAGS,
+                        read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RFLAGS) | (1u64 << 8));
+    }
 }
 
 fn main()
@@ -600,6 +605,11 @@ fn main()
 
                 /* Close interrupt window here - we will inject interrupts before returning to guest */
                 complete_interrupt_window(vcpu);
+            }
+
+            hv_vmx_exit_reason::VMX_REASON_TRIPLE_FAULT => {
+                debug!("VMX_REASON_TRIPLE_FAULT");
+                panic!();
             }
 
             _ => {
