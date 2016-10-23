@@ -10,7 +10,7 @@ $(IMG): $(KERNEL)
 	$(CROSS_PREFIX)objcopy -j .text -j .data -O binary $< $@
 
 $(KERNEL): $(LIB) $(BOOT) src/xvmtest.lds
-	$(CROSS_PREFIX)ld -T src/xvmtest.lds -o $@ $(BOOT) $(LIB)
+	$(CROSS_PREFIX)ld --gc-sections -T src/xvmtest.lds -o $@ $(BOOT) $(LIB)
 
 $(BOOT): src/boot.asm
 	nasm -f elf32 -o $@ $<
