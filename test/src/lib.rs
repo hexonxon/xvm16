@@ -1,12 +1,26 @@
-#![feature(lang_items, asm)]
+#![feature(lang_items, asm, naked_functions, core_intrinsics)]
 #![no_std]
 
+#[macro_use]
+mod dbgprint;
+#[macro_use]
+mod arch;
 mod pio;
-#[macro_use] mod dbgprint;
+
+use arch::*;
 
 #[no_mangle]
 pub extern fn rust_main() {
     dbgprintln!("Hello God. This is me, Jesus.");
+    dbgprintln!("Interrupts are {}", match interrupts_enabled() {
+                    true => "enabled",
+                    false => "disabled"
+                });
+
+    assert!(!interrupts_enabled());
+
+    arch_init();
+
     assert!(false);
 }
 
