@@ -9,7 +9,7 @@ extern rust_main
 global _entry16
 
 %define BASE 0x8000
-%define STACK_TOP (BASE - 1)
+%define STACK_TOP BASE
 
 use16
 _entry16:
