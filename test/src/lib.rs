@@ -1,8 +1,6 @@
 #![feature(lang_items, asm)]
 #![no_std]
 
-extern crate rlibc;
-
 mod pio;
 #[macro_use] mod dbgprint;
 

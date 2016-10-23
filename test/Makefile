@@ -18,7 +18,8 @@ $(BOOT): src/boot.asm
 $(LIB): cargo
 
 cargo:
-	cargo build --target i686-unknown-linux-gnu --release
+	rustup override add nightly
+	cargo build --target i686-unknown-linux-gnu --release --verbose
 
 clean:
 	cargo clean
