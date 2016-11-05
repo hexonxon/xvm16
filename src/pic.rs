@@ -71,11 +71,24 @@ impl I8259A
 
         /* We only update IRR here because we're not sure when
          * interrupt event is going to be injected in guest.
-         * So ISR will be updated once guest will try to access it */
+         * That what ack is for. */
         self.irr |= mask;
 
         /* Notify VM state we need to inject this vector */
         vm::raise_external_interrupt(irq + self.offset);
+    }
+
+    /* Acknowledge interrupt delivery to guest */
+    fn ack(&mut self, vec: u8) {
+        assert!(vec >= self.offset);
+        let irq = vec - self.offset;
+
+        /* Acked bit should be in IRR */
+        assert!(0 != (self.irr & (1_u8 << irq)));
+
+        /* Move IRR bit to ISR */
+        self.isr |= 1_u8 << irq;
+        self.irr &= !(1_u8 << irq);
     }
 
     /* Write to command port */
@@ -103,7 +116,7 @@ impl I8259A
             }
 
             /* Also, what if an interrupt was delivered (ISR != 0) but not EOI-ed by the guest?
-             * Stricktly speaking this is a guest bug.
+             * Strictly speaking this is a guest bug.
              * It might deliver a racy EOI after init so let's keep ISR hanging as well */
         } else if cmd == PIC_READ_IRR {
             self.cmd_latch = self.irr;
@@ -129,6 +142,11 @@ impl I8259A
     /* Read from command port */
     fn read_command(&mut self) -> u8 {
         return self.cmd_latch;
+    }
+
+    /* Read from data port */
+    fn read_data(&mut self) -> u8 {
+        self.imr
     }
 
     /* Write to data port */
@@ -162,12 +180,9 @@ impl I8259A
             }
         }
     }
-
-    /* Read from data port */
-    fn read_data(&mut self) -> u8 {
-        self.imr
-    }
 }
+
+///////////////////////////////////////////////////////////////////////////////
 
 /**
  * Cascade PIC setup
@@ -199,7 +214,11 @@ impl PIC
     }
 
     fn ack(&mut self, vec: u8) {
-        unimplemented!();
+        if vec >= self.slave.offset {
+            self.slave.ack(vec);
+        } else {
+            self.master.ack(vec);
+        }
     }
 }
 
