@@ -41,8 +41,8 @@ const PIT_MODE_ALT_2: u8 = 0b110; // Same as mode 2, just different bit value
 const PIT_MODE_ALT_3: u8 = 0b111; // Same as mode 3, just different bit value
 
 // Mode/command bit 0
-const PIT_BCD_MODE: u8 = 0b0;
-const PIT_BINARY_MODE: u8 = 0b1;
+const PIT_BCD_MODE: u8 = 0b1;
+const PIT_BINARY_MODE: u8 = 0b0;
 
 // PIT mode decoded from register byte for convinience
 #[derive(Default)]
