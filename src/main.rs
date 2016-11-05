@@ -1,15 +1,14 @@
 #![allow(non_snake_case)] 
 #![allow(non_camel_case_types)]
 
+#[macro_use] extern crate lazy_static;
+#[macro_use] extern crate log;
 extern crate rlibc;
 extern crate num;
 extern crate core;
 extern crate time;
 extern crate capstone;
 extern crate hypervisor_framework;
-
-#[macro_use]
-extern crate log;
 
 mod util;
 mod qemudbg;
