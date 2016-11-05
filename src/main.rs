@@ -452,10 +452,12 @@ fn main()
     wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_VMENTRY_CONTROLS, check_capability(hv_vmx_capability_t::HV_VMX_CAP_ENTRY, 0));
     wvmcs32(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_VMEXIT_CONTROLS, check_capability(hv_vmx_capability_t::HV_VMX_CAP_EXIT, 0));
 
-    wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_EXC_BITMAP, 0
-        | (1 << 1)
-        | (1 << 3)
+    if cfg!(feature = "guest-tracing") {
+        wvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_CTRL_EXC_BITMAP, 0
+              | (1 << 1)
+              | (1 << 3)
         );
+    }
 
     let args: Vec<String> = env::args().collect();
     if args.len() > 1 {
