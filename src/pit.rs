@@ -628,6 +628,10 @@ impl PIT
     fn write_data(&mut self, chan: u8, val: u8) {
         self.channels[chan as usize].write(val);
     }
+
+    fn read_data(&mut self, chan: u8) -> u8 {
+        self.channels[chan as usize].read()
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -641,13 +645,33 @@ impl vm::io_handler for PITDev
 {
     fn io_read(&self, port: u16, size: u8) -> vm::IoOperandType
     {
-        unimplemented!();
-    }
+        let mut dev = self.pit.borrow_mut();
 
+        vm::IoOperandType::byte(
+            match port {
+                PIT_CMD => 0, // Read from CMD is ignored
+                PIT_CH0 => dev.read_data(0),
+                PIT_CH1 => dev.read_data(1),
+                PIT_CH2 => dev.read_data(2),
+
+                _ => panic!(),
+            }
+        )
+    }
 
     fn io_write(&self, port: u16, data: vm::IoOperandType)
     {
-        unimplemented!();
+        let mut dev = self.pit.borrow_mut();
+        let data8 = data.unwrap_byte();
+
+        match port {
+            PIT_CMD => dev.write_mode(data8),
+            PIT_CH0 => dev.write_data(0, data8),
+            PIT_CH1 => dev.write_data(1, data8),
+            PIT_CH2 => dev.write_data(2, data8),
+
+            _ => panic!(),
+        }
     }
 }
 
