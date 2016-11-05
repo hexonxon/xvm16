@@ -129,7 +129,7 @@ pub fn clear_idt_entry(vec: i8) {
     }
 }
 
-pub type InterruptHandlerFn = extern "C" fn(u8);
+pub type InterruptHandlerFn = extern "C" fn();
 pub type ExceptionHandlerFn = extern "C" fn(*mut ExceptionFrame);
 pub type ExceptionHandlerWithErrorFn = extern "C" fn(*mut ExceptionFrame, u32);
 
@@ -160,12 +160,12 @@ macro_rules! exception_handler {
                       pop   edx
                       pop   ecx
                       pop   eax
-                      iret"
+                      iretd"
                       ::"X"($handler as arch::ExceptionHandlerFn)::"intel","volatile");
                 ::core::intrinsics::unreachable();
             }
         }
-        set_idt_entry($vec, _exception_wrapper);
+        arch::set_idt_entry($vec, _exception_wrapper);
     }}
 }
 
@@ -201,12 +201,12 @@ macro_rules! exception_handler_with_error {
                       // IA32 exception handling requires error code to be removed from stack
                       // before iret
                       add   esp, 4
-                      iret"
+                      iretd"
                       ::"X"($handler as arch::ExceptionHandlerWithErrorFn)::"intel","volatile");
                 ::core::intrinsics::unreachable();
             }
         }
-        set_idt_entry($vec, _exception_wrapper_with_error);
+        arch::set_idt_entry($vec, _exception_wrapper_with_error);
     }}
 }
 
@@ -234,12 +234,12 @@ macro_rules! interrupt_handler {
                       pop   edx
                       pop   ecx
                       pop   eax
-                      iret"
+                      iretd"
                       ::"X"($handler as arch::InterruptHandlerFn)::"intel", "volatile");
                 ::core::intrinsics::unreachable();
             }
         }
-        set_idt_entry($vec, _interrupt_wrapper)
+        arch::set_idt_entry($vec, _interrupt_wrapper)
     }}
 }
 
@@ -252,7 +252,7 @@ macro_rules! interrupt_handler {
 pub fn arch_init() {
     unsafe {
         let idtr: IDTR = IDTR {
-            limit: 256,
+            limit: 4096,
             base: IDT.as_ptr() as u32,
         };
 

@@ -7,14 +7,15 @@ extern crate rlibc;
 #[macro_use] mod arch;
 mod pio;
 mod pic;
+mod pit;
 
 use arch::*;
 
 const PIC_MASTER_OFFSET: u8 = 0x20;
 const PIC_SLAVE_OFFSET: u8 = 0x70;
 
-extern "C" fn unhandled_interrupt(vec: u8) {
-    dbgprintln!("Unhandled interrupt {:x}", vec);
+extern "C" fn unhandled_interrupt() {
+    dbgprintln!("Unhandled interrupt");
 }
 
 extern "C" fn unhandled_exception(vec: u8, frame: *mut arch::ExceptionFrame, error: u32) {
@@ -53,6 +54,10 @@ pub extern fn rust_main() {
 
     // Configure exception
     // TODO:
+    exception_handler_with_error!(8, exp_double_fault);
+    exception_handler_with_error!(11, exp_double_fault);
+    exception_handler_with_error!(12, exp_double_fault);
+    exception_handler_with_error!(13, exp_double_fault);
 
     // Configure interrupts
     pic::reset(pic::make_arg(PIC_MASTER_OFFSET, PIC_SLAVE_OFFSET), 0xFFFF);
@@ -61,6 +66,7 @@ pub extern fn rust_main() {
     }
 
     pic::set_mask(0);
+    arch::interrupts_enable();
     dbgprintln!("Interrupts configured");
 
     assert!(false);
