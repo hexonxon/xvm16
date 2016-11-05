@@ -11,6 +11,32 @@ mod pio;
 
 use arch::*;
 
+extern "C" fn unhandled_interrupt(vec: u8) {
+    dbgprintln!("Unhandled interrupt {:x}", vec);
+}
+
+extern "C" fn unhandled_exception(vec: u8, frame: *mut arch::ExceptionFrame, error: u32) {
+    unsafe {
+        let frameaddr = frame as u32;
+        dbgprintln!("Unhandled exception {:x}, frame at {:X}, CS:EIP {:X}:{:X}, EFL {:X}, code {:X}",
+                    vec,
+                    frameaddr,
+                    (*frame).cs,
+                    (*frame).eip,
+                    (*frame).eflags,
+                    error);
+    }
+    loop {}
+}
+
+extern "C" fn exp_debug(frame: *mut arch::ExceptionFrame) {
+    unhandled_exception(1, frame, 0);
+}
+
+extern "C" fn exp_double_fault(frame: *mut arch::ExceptionFrame, error: u32) {
+    unhandled_exception(8, frame, error);
+}
+
 #[no_mangle]
 pub extern fn rust_main() {
     dbgprintln!("Hello God. This is me, Jesus.");

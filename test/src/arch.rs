@@ -78,15 +78,11 @@ struct IDTDescriptor {
 }
 
 #[derive(Default, Copy, Clone)]
-#[repr(C, packed)]
-struct ExceptionFrame {
-    eip: u32,
-    _pad1: u16,
-    cs: u16,
-    eflags: u32,
-    esp: u32,
-    _pad2: u16,
-    ss: u16,
+#[repr(C)]
+pub struct ExceptionFrame {
+    pub eip: u32,
+    pub cs: u16, // Relying on natural alignment here to pad this field to 32 bits
+    pub eflags: u32,
 }
 
 /* That's our global IDT */
@@ -108,7 +104,7 @@ fn get_code_selector() -> u16 {
     cs_val & !0x7 // Clear CPL and TI bits if any
 }
 
-pub fn set_interrupt_handler(vec: i8, handler: extern "C" fn() -> !) {
+pub fn set_idt_entry(vec: i8, handler: extern "C" fn() -> !) {
     let iflag = InterruptGuard::default();
     let addr: u32 = handler as u32;
 
@@ -121,7 +117,7 @@ pub fn set_interrupt_handler(vec: i8, handler: extern "C" fn() -> !) {
     }
 }
 
-pub fn clear_interrupt_handler(vec: i8) {
+pub fn clear_idt_entry(vec: i8) {
     let iflag = InterruptGuard::default();
 
     unsafe {
@@ -133,49 +129,84 @@ pub fn clear_interrupt_handler(vec: i8) {
     }
 }
 
+pub type InterruptHandlerFn = extern "C" fn(u8);
+pub type ExceptionHandlerFn = extern "C" fn(*mut ExceptionFrame);
+pub type ExceptionHandlerWithErrorFn = extern "C" fn(*mut ExceptionFrame, u32);
+
 /**
- * Register function as an exception handler:
+ * Register function as an exception handler that does not accept an error code:
+ * handler should be typed as ExceptionHandlerFn
  * exception_handler!(0x3, my_handler)
  */
 macro_rules! exception_handler {
-    ($vec:expr, $name:ident) => {{
-        #[naked]
-        extern "C" fn exception_handler() -> ! {
+    ($vec:expr, $handler:ident) => {{
+        #[naked] extern "C" fn _exception_wrapper() -> ! {
             unsafe {
-                asm!("
-                  push eax
-                  push ecx
-                  push edx
+                asm!("push  eax
+                      push  ecx
+                      push  edx
 
-                  cmp  $1, 8
-                  jb   .no_code
-                  je   .has_code
-                  cmp  $1, 10
-                  jb   .no_code
-                  cmp  $1, 15
-                  jb   .has_code
-                  cmp  $1, 17
-                  je   .has_code
-                  cmp  $1, 30
-                  je   .has_code
-                .no_code:
-                  push  0
-                .has_code:
-                  push  [esp + 12]
+                      // On IA32 interrupt frame is not guaranteed to be aligned
+                      // Save current stack pointer and align ESP to 16 bytes
+                      push  ebp
+                      mov   ebp, esp
+                      lea   eax, [ebp + 16]
+                      push  eax // Exception frame pointer argument
+                      and   esp, 0xFFFFFFF0
 
-                  push  esp + 16
-                  push  $1
-                  call  $0
-                  add   esp, 12
-                  pop  edx
-                  pop  ecx
-                  pop  eax
-                  iret"
-                  ::"i"($name as extern "C" fn(u8, *const ExceptionFrame, u32)), "i"($vec as u8) :: "intel");
+                      call  $0
+                      mov   esp, ebp
+                      pop   ebp
+                      pop   edx
+                      pop   ecx
+                      pop   eax
+                      iret"
+                      ::"X"($handler as arch::ExceptionHandlerFn)::"intel","volatile");
                 ::core::intrinsics::unreachable();
             }
         }
-        set_interrupt_handler($vec, exception_handler)
+        set_idt_entry($vec, _exception_wrapper);
+    }}
+}
+
+/**
+ * Register function as an exception handler that accepts an error code:
+ * handler should be typed as ExceptionHandlerWithErrorFn
+ * exception_handler_with_error!(0x3, my_handler)
+ */
+macro_rules! exception_handler_with_error {
+    ($vec:expr, $handler:ident) => {{
+        #[naked] extern "C" fn _exception_wrapper_with_error() -> ! {
+            unsafe {
+                asm!("push  eax
+                      push  ecx
+                      push  edx
+
+                      // On IA32 interrupt frame is not guaranteed to be aligned
+                      // Save current stack pointer and align ESP to 16 bytes
+                      push  ebp
+                      mov   ebp, esp
+                      push  [ebp + 16] // Error code argument
+                      lea   eax, [ebp + 20]
+                      push  eax // Exception frame pointer argument
+                      and   esp, 0xFFFFFFF0
+
+                      call  $0
+                      mov   esp, ebp
+                      pop   ebp
+                      pop   edx
+                      pop   ecx
+                      pop   eax
+
+                      // IA32 exception handling requires error code to be removed from stack
+                      // before iret
+                      add   esp, 4
+                      iret"
+                      ::"X"($handler as arch::ExceptionHandlerWithErrorFn)::"intel","volatile");
+                ::core::intrinsics::unreachable();
+            }
+        }
+        set_idt_entry($vec, _exception_wrapper_with_error);
     }}
 }
 
@@ -184,26 +215,31 @@ macro_rules! exception_handler {
  * interrupt_handler!(0x20, my_handler)
  */
 macro_rules! interrupt_handler {
-    ($vec:expr, $name:ident) => {{
-        #[naked]
-        extern "C" fn interrupt_handler() -> ! {
+    ($vec:expr, $handler:ident) => {{
+        #[naked] extern "C" fn _interrupt_wrapper() -> ! {
             unsafe {
-                asm!("
-                  push eax
-                  push ecx
-                  push edx
-                  push $1
-                  call $0
-                  add  esp, 4
-                  pop  edx
-                  pop  ecx
-                  pop  eax
-                  iret"
-                  :: "i"($name as extern "C" fn(u8)), "i"($vec as u8) :: "intel");
+                asm!("push  eax
+                      push  ecx
+                      push  edx
+
+                      // On IA32 interrupt frame is not guaranteed to be aligned
+                      // Save current stack pointer and align ESP to 16 bytes
+                      push  ebp
+                      mov   ebp, esp
+                      and   esp, 0xFFFFFFF0
+
+                      call  $0
+                      mov   esp, ebp
+                      pop   ebp
+                      pop   edx
+                      pop   ecx
+                      pop   eax
+                      iret"
+                      ::"X"($handler as arch::InterruptHandlerFn)::"intel", "volatile");
                 ::core::intrinsics::unreachable();
             }
         }
-        set_interrupt_handler($vec, interrupt_handler)
+        set_idt_entry($vec, _interrupt_wrapper)
     }}
 }
 
