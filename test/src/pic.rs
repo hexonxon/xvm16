@@ -157,3 +157,40 @@ pub fn mask_vector(vec: u8, is_masked: bool)
 
     set_mask2(master, slave);
 }
+
+/**
+ * Send end-of-interrupt for IRQ
+ */
+pub fn EOI(irq: u8)
+{
+    unsafe {
+        if irq >= 8 {
+            outb(PIC_SLAVE_CMD, PIC_EOI);
+        }
+        outb(PIC_MASTER_CMD, PIC_EOI);
+    }
+}
+
+/**
+ * Read ISR registers
+ */
+pub fn ISR() -> u16
+{
+    unsafe {
+        outb(PIC_MASTER_CMD, PIC_READ_ISR);
+        outb(PIC_SLAVE_CMD, PIC_READ_ISR);
+        make_arg(inb(PIC_MASTER_CMD), inb(PIC_SLAVE_CMD))
+    }
+}
+
+/**
+ * Read IRR registers
+ */
+pub fn IRR() -> u16
+{
+    unsafe {
+        outb(PIC_MASTER_CMD, PIC_READ_IRR);
+        outb(PIC_SLAVE_CMD, PIC_READ_IRR);
+        make_arg(inb(PIC_MASTER_CMD), inb(PIC_SLAVE_CMD))
+    }
+}
