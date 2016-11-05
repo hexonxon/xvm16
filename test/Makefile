@@ -1,7 +1,7 @@
 KERNEL := xvmtest.bin
 IMG := xvmtest
-LIB := target/i686-unknown-linux-gnu/release/libxvmtest.a
-BOOT := boot.o
+LIB := target/i686-unknown-linux-gnu/debug/libxvmtest.a
+OBJS := boot.o
 CROSS_PREFIX ?= i386-elf-
 
 all: $(IMG)
@@ -9,15 +9,15 @@ all: $(IMG)
 $(IMG): $(KERNEL)
 	$(CROSS_PREFIX)objcopy -j .text -j .data -O binary $< $@
 
-$(KERNEL): $(BOOT) src/xvmtest.lds cargo
-	$(CROSS_PREFIX)ld --gc-sections -T src/xvmtest.lds -o $@ $(BOOT) $(LIB)
+$(KERNEL): $(OBJS) src/xvmtest.lds cargo
+	$(CROSS_PREFIX)ld --gc-sections -T src/xvmtest.lds -o $@ $(OBJS) $(LIB)
 
-$(BOOT): src/boot.asm
+%.o: src/%.asm
 	nasm -f elf32 -o $@ $<
 
 cargo:
 	rustup override add nightly
-	cargo build --target i686-unknown-linux-gnu --release --verbose
+	cargo build --target i686-unknown-linux-gnu --verbose
 
 clean:
 	cargo clean
