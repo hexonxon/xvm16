@@ -40,7 +40,7 @@ pub fn interrupts_enable_if(iflag: bool) {
     }
 }
 
-struct InterruptGuard {
+pub struct InterruptGuard {
     iflag: bool,
 }
 
@@ -104,7 +104,7 @@ fn get_code_selector() -> u16 {
     cs_val & !0x7 // Clear CPL and TI bits if any
 }
 
-pub fn set_idt_entry(vec: i8, handler: extern "C" fn() -> !) {
+pub fn set_idt_entry(vec: u8, handler: extern "C" fn() -> !) {
     let iflag = InterruptGuard::default();
     let addr: u32 = handler as u32;
 
