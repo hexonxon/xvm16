@@ -18,6 +18,7 @@ mod pit;
 mod vm;
 mod pci;
 mod pic;
+mod event;
 
 use hypervisor_framework::*;
 use rlibc::*;
@@ -467,9 +468,12 @@ fn main()
         init(vcpu, &String::from("bios/bios.bin"), true);
     }
 
+    // Start event loop thread
+    event::start_event_loop();
+
     // Run vm loop
     loop {
-        let err = vm::run(vcpu);
+        let err = vm::run();
 
         if err != HV_SUCCESS {
             error!("vm_run failed with {}", err);

@@ -3,7 +3,7 @@
  */
 
 use hypervisor_framework::*;
-use std::sync::Arc;
+use std::sync::{Arc, atomic};
 use std::rc::Rc;
 use std::mem;
 use rlibc::*;
@@ -133,6 +133,7 @@ struct vm {
  * TODO: We are single threaded now, but remeber to add proper sync in case of multiple threads
  */
 static mut VM: Option<*mut vm> = Option::None;
+static RUNNING: atomic::AtomicBool = atomic::ATOMIC_BOOL_INIT;
 
 fn get_vm() -> &'static mut vm
 {
@@ -203,6 +204,30 @@ pub fn next_external_interrupt() -> Option<u8>
     }
 }
 
+pub fn interrupt_guest()
+{
+    unsafe {
+        let mut vcpus: [hv_vcpuid_t; 1] = [vcpu(); 1];
+        let res = hv_vcpu_interrupt(vcpus.as_mut_ptr(), 2);
+        if res != 0 {
+            panic!("hv_vcpu_interrupt failed with {:x}", res);
+        }
+    }
+}
+
+pub fn get_guest_exec_time() -> u64
+{
+    unsafe {
+        let mut time: u64 = 0;
+        let res = hv_vcpu_get_exec_time(vcpu(), &mut time as *mut u64);
+        if res != 0 {
+            panic!("hv_vcpu_get_exec_time failed with {:x}", res);
+        }
+
+        time
+    }
+}
+
 fn alloc_pages(size: usize) -> hv_uvaddr_t 
 {
     unsafe {
@@ -266,11 +291,22 @@ pub fn vcpu_create() -> hv_vcpuid_t
     }
 }
 
-pub fn run(vcpu: hv_vcpuid_t) -> hv_return_t
+pub fn run() -> hv_return_t
 {
+    let res: hv_return_t;
+
+    RUNNING.store(true, atomic::Ordering::Release);
     unsafe {
-        hv_vcpu_run(vcpu)
+        res = hv_vcpu_run(vcpu())
     }
+    RUNNING.store(false, atomic::Ordering::Release);
+
+    return res;
+}
+
+pub fn is_running() -> bool
+{
+    RUNNING.load(atomic::Ordering::Acquire)
 }
 
 pub fn register_io_region(handler: Rc<io_handler>, base: u16, len: u8)
