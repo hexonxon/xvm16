@@ -208,7 +208,7 @@ pub fn interrupt_guest()
 {
     unsafe {
         let mut vcpus: [hv_vcpuid_t; 1] = [vcpu(); 1];
-        let res = hv_vcpu_interrupt(vcpus.as_mut_ptr(), 2);
+        let res = hv_vcpu_interrupt(vcpus.as_mut_ptr(), vcpus.len() as u32);
         if res != 0 {
             panic!("hv_vcpu_interrupt failed with {:x}", res);
         }
