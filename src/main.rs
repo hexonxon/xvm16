@@ -33,7 +33,7 @@ struct SimpleLogger;
 
 impl log::Log for SimpleLogger {
     fn enabled(&self, metadata: &LogMetadata) -> bool {
-        metadata.level() <= LogLevel::Debug
+        metadata.level() <= LogLevel::Warn
     }
 
     fn log(&self, record: &LogRecord) {
@@ -150,30 +150,30 @@ fn dump_guest_state(vcpu: hv_vcpuid_t)
     let rip = rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_RIP);
     let cs_base = rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_GUEST_CS_BASE);
     let gpa = cs_base + rip;
-    println!(" EIP {:x} (CS {:x}, PA {:x})", rip, cs_base, gpa);
+    debug!(" EIP {:x} (CS {:x}, PA {:x})", rip, cs_base, gpa);
 
-    println!(" EAX = {:x}, EBX = {:x}, ECX = {:x}, EDX = {:x} ",
+    debug!(" EAX = {:x}, EBX = {:x}, ECX = {:x}, EDX = {:x} ",
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RAX),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RBX),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RCX),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RDX));
 
-    println!(" ESI = {:x}, EDI = {:x}, EBP = {:x}, ESP = {:x} ",
+    debug!(" ESI = {:x}, EDI = {:x}, EBP = {:x}, ESP = {:x} ",
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RSI),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RDI),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RBP),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RSP));
     
-    println!(" EFLAGS = {:x} ",
+    debug!(" EFLAGS = {:x} ",
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_RFLAGS));
 
-    println!(" CR0 = {:x}, CR2 = {:x}, CR3 = {:x}, CR4 = {:x} ",
+    debug!(" CR0 = {:x}, CR2 = {:x}, CR3 = {:x}, CR4 = {:x} ",
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_CR0),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_CR2),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_CR3),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_CR4));
 
-    println!(" CS = {:x}, DS = {:x}, SS = {:x}, ES = {:x}, FS = {:x}, GS = {:x} ",
+    debug!(" CS = {:x}, DS = {:x}, SS = {:x}, ES = {:x}, FS = {:x}, GS = {:x} ",
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_CS),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_DS),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_SS),
@@ -181,14 +181,14 @@ fn dump_guest_state(vcpu: hv_vcpuid_t)
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_FS),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_GS));
 
-    println!(" GDTR = ({:x}, {:x}), IDTR = ({:x}, {:x}) ",
+    debug!(" GDTR = ({:x}, {:x}), IDTR = ({:x}, {:x}) ",
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_GDT_BASE),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_GDT_LIMIT),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_IDT_BASE),
         read_guest_reg(vcpu, hv_x86_reg_t::HV_X86_IDT_LIMIT));
 
-    println!(" GLA = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_GUEST_LIN_ADDR));
-    println!(" EXITQ = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_EXIT_QUALIFIC));
+    debug!(" GLA = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_GUEST_LIN_ADDR));
+    debug!(" EXITQ = {:x}", rvmcs(vcpu, hv_vmx_vmcs_regs::VMCS_RO_EXIT_QUALIFIC));
 }
 
 fn is_in_real_mode(vcpu: hv_vcpuid_t) -> bool
@@ -223,7 +223,7 @@ fn dump_guest_code(pa: hv_gpaddr_t)
     match cs.disasm(&buf[0..bytes], addr, 0) {
         Ok(insns) => {
             for i in insns.iter() {
-                println!("{}", i);
+                debug!("{}", i);
             }
         },
         Err(err) => {
