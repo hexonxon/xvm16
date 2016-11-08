@@ -21,6 +21,6 @@ cargo:
 
 clean:
 	cargo clean
-	rm -rf $(KERNEL) $(BOOT)
+	rm -rf $(KERNEL) $(IMG) $(OBJS)
 
 .PHONY: all cargo clean
