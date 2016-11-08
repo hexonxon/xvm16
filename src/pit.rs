@@ -7,6 +7,7 @@ use vm;
 use std::rc::Rc;
 use std::cell::RefCell;
 use time;
+use event;
 
 // PIT internal oscilator freq
 const PIT_FREQ_HZ: u64 = 1193182;
@@ -165,6 +166,11 @@ impl PITChannel
         }
     }
 
+    fn event_handler(ev: event::Event) {
+        vm::assert_irq(0);
+        vm::interrupt_guest();
+    }
+
     /*
      * Mode specific handling of new reload value
      */
@@ -182,6 +188,12 @@ impl PITChannel
 
         let count = self.reload;
         self.set_count(count);
+
+        /* Delay in microseconds */
+        let delay = count as u64 * 1000000 / PIT_FREQ_HZ;
+
+        let ev = event::create_event(PITChannel::event_handler);
+        event::schedule_event(delay, ev);
     }
 
     /*
@@ -304,7 +316,7 @@ impl PITChannel
     }
 
     /*
-     * gRead a byte from channel data port
+     * Read a byte from channel data port
      */
     fn read(&mut self) -> u8 {
 
