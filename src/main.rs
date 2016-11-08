@@ -612,6 +612,11 @@ fn main()
                 complete_interrupt_window(vcpu);
             }
 
+            hv_vmx_exit_reason::VMX_REASON_HLT => {
+                debug!("VMX_REASON_HLT");
+                std::process::exit(0);
+            }
+
             hv_vmx_exit_reason::VMX_REASON_TRIPLE_FAULT => {
                 debug!("VMX_REASON_TRIPLE_FAULT");
                 panic!();
