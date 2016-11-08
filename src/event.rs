@@ -4,7 +4,8 @@
 
 use std::{thread, fmt};
 use std::cmp::Ordering;
-use std::sync::{Mutex};
+use std::sync::{Mutex, MutexGuard, Condvar, atomic};
+use std::sync::atomic::{AtomicBool, ATOMIC_BOOL_INIT};
 
 use vm;
 
@@ -52,6 +53,22 @@ lazy_static! {
     static ref EVENT_QUEUE: Mutex<Vec<Event>> = Mutex::new(Vec::new());
 }
 
+/**
+ * Event loop locking machineria
+ *
+ * Event loop should be locked when hypervisor is not executing guest vcpu
+ * Otherwise event loop thread and vcpu thread may concurrently change VM state
+ * To achieve this we lock event loop when vcpu thread returns from guest
+ * and unlock when it runs again.
+ *
+ * Events count guest time so no events are missed when guest is not executing
+ */
+lazy_static! {
+    static ref LOOP_LOCK: Mutex<()> = Mutex::new(());
+    static ref LOOP_COND: Condvar = Condvar::new();
+    static ref LOOP_IS_LOCKED: AtomicBool = ATOMIC_BOOL_INIT;
+}
+
 fn enqueue_event(ev: Event)
 {
     let mut q = EVENT_QUEUE.lock().unwrap();
@@ -96,10 +113,15 @@ fn event_loop_worker()
 {
     let mut prev_guest_time = 0;
     loop {
-        if !vm::is_running() {
-            continue;
+
+        /* Check if we need to wait */
+        let mut lock = LOOP_LOCK.lock().unwrap();
+        while LOOP_IS_LOCKED.load(atomic::Ordering::Acquire) {
+            debug!("Event loop is waiting");
+            lock = LOOP_COND.wait(lock).unwrap();
         }
 
+        /* Count how much guest time has passed */
         let guest_time = vm::get_guest_exec_time();
         assert!(guest_time >= prev_guest_time);
 
@@ -145,4 +167,22 @@ pub fn start_event_loop()
     thread::spawn(|| {
         event_loop_worker();
     });
+}
+
+/**
+ * Pause event loop execution
+ */
+pub fn lock_event_loop()
+{
+    let lock = LOOP_LOCK.lock().unwrap();
+    LOOP_IS_LOCKED.store(true, atomic::Ordering::Release);
+}
+
+/**
+ * Resume event loop execution
+ */
+pub fn unlock_event_loop()
+{
+    LOOP_IS_LOCKED.store(false, atomic::Ordering::Release);
+    LOOP_COND.notify_one();
 }

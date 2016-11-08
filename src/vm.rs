@@ -10,6 +10,7 @@ use std::mem;
 use rlibc::*;
 use hypervisor_framework::*;
 use util::bitmap::*;
+use event;
 
 extern "C" {
     fn valloc(size: usize) -> *mut ::std::os::raw::c_void;
@@ -167,7 +168,6 @@ struct vm {
  * TODO: We are single threaded now, but remeber to add proper sync in case of multiple threads
  */
 static mut VM: Option<*mut vm> = Option::None;
-static RUNNING: atomic::AtomicBool = atomic::ATOMIC_BOOL_INIT;
 
 fn get_vm() -> &'static mut vm
 {
@@ -273,7 +273,6 @@ fn alloc_pages(size: usize) -> hv_uvaddr_t
 
 pub fn vcpu() -> hv_vcpuid_t
 {
-    //VM.unwrap().vcpu
     get_vm().vcpu
 }
 
@@ -329,18 +328,17 @@ pub fn run() -> hv_return_t
 {
     let res: hv_return_t;
 
-    RUNNING.store(true, atomic::Ordering::Release);
+    /* Enable event loop before returning to guest */
+    event::unlock_event_loop();
+
+    /* Run guest vcpu */
     unsafe {
         res = hv_vcpu_run(vcpu())
     }
-    RUNNING.store(false, atomic::Ordering::Release);
 
+    /* Disable event loop after returning to guest */
+    event::lock_event_loop();
     return res;
-}
-
-pub fn is_running() -> bool
-{
-    RUNNING.load(atomic::Ordering::Acquire)
 }
 
 pub fn register_io_region(handler: Rc<io_handler>, base: u16, len: u8)
