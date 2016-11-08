@@ -1,2 +1,12 @@
 target
 qemudbg.out
+.DS_Store
+.*.swp
+.*.swo
+*.o
+*.a
+*.lib
+*.rlib
+*.bin
+*.img
+*.elf

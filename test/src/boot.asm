@@ -32,7 +32,7 @@ _entry32:
     call    rust_main   
 
 .halt:
-    jmp     $
+    hlt
 
 gdtr:
     dw      (gdt_end - gdt_start) + 1

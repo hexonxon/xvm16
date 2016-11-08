@@ -1,3 +1,5 @@
+TESTS := $(patsubst test/payload/%.rs,%,$(wildcard test/payload/*.rs))
+
 all: build
 
 build:
@@ -8,9 +10,12 @@ run:
 
 test:
 	cargo test
-
-check:
-	make -C test && cargo run test/xvmtest; cat qemudbg.out
+	cargo build
+	make -C test
+	for i in $(TESTS) ; do \
+		echo "Running $$i ..." ;\
+		cargo run test/payload/$$i.bin ;\
+	done
 
 clean:
 	cargo clean

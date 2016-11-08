@@ -3,9 +3,9 @@
 
 extern crate rlibc;
 
-#[macro_use] mod dbgprint;
+#[macro_use] pub mod dbgprint;
 #[macro_use] mod arch;
-mod pio;
+pub mod pio;
 mod pic;
 mod pit;
 
@@ -40,6 +40,10 @@ extern "C" fn exp_double_fault(frame: *mut arch::ExceptionFrame, error: u32) {
     unhandled_exception(8, frame, error);
 }
 
+extern {
+    fn test_main();
+}
+
 #[no_mangle]
 pub extern fn rust_main() {
     dbgprintln!("Hello God. This is me, Jesus.");
@@ -52,12 +56,9 @@ pub extern fn rust_main() {
 
     arch_init();
 
-    // Configure exception
-    // TODO:
+    // Configure exceptions
+    exception_handler!(3, exp_debug);
     exception_handler_with_error!(8, exp_double_fault);
-    exception_handler_with_error!(11, exp_double_fault);
-    exception_handler_with_error!(12, exp_double_fault);
-    exception_handler_with_error!(13, exp_double_fault);
 
     // Configure interrupts
     pic::reset(pic::make_arg(PIC_MASTER_OFFSET, PIC_SLAVE_OFFSET), 0xFFFF);
@@ -69,7 +70,9 @@ pub extern fn rust_main() {
     arch::interrupts_enable();
     dbgprintln!("Interrupts configured");
 
-    assert!(false);
+    unsafe {
+        test_main();
+    }
 }
 
 #[allow(non_snake_case)]

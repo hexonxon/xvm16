@@ -8,7 +8,7 @@ use core::fmt::Result;
 
 const QEMU_DBG_PORT: u16 = 0x402;
 
-fn dbgwrite(buf: &[u8]) {
+pub fn dbgwrite(buf: &[u8]) {
     for i in buf {
         unsafe { pio::outb(QEMU_DBG_PORT, *i); }
     }
@@ -28,6 +28,7 @@ impl ::core::fmt::Write for DbgWriter
 
 pub static mut WRITER: DbgWriter = DbgWriter {};
 
+#[macro_export]
 macro_rules! dbgprint {
     ($($arg:tt)*) => ({
         unsafe {
@@ -37,6 +38,7 @@ macro_rules! dbgprint {
     });
 }
 
+#[macro_export]
 macro_rules! dbgprintln {
     ($fmt:expr) => (dbgprint!(concat!($fmt, "\n")));
     ($fmt:expr, $($arg:tt)*) => (dbgprint!(concat!($fmt, "\n"), $($arg)*));

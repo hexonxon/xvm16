@@ -3,7 +3,7 @@ name = "xvmtest"
 version = "0.0.1"
 
 [lib]
-crate-type = ["staticlib"]
+crate-type = ["rlib"]
 
 [dependencies]
 rlibc = "*"
