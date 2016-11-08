@@ -97,7 +97,7 @@ pub trait io_handler
     /**
      * Write to IO port
      */
-    fn io_write(&self, vm: &mut Vm, addr: u16, data: IoOperandType);
+    fn io_write(&self, addr: u16, data: IoOperandType);
 }
 
 /**
