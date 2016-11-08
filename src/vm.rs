@@ -1,30 +1,37 @@
 /*
  * VM model
+ *
+ * TODO: describe locking policy
  */
 
-use hypervisor_framework::*;
-use std::sync::{Arc, atomic};
+use std::sync::{Arc, Mutex, atomic};
 use std::rc::Rc;
 use std::mem;
 use rlibc::*;
+use hypervisor_framework::*;
 use util::bitmap::*;
 
 extern "C" {
     fn valloc(size: usize) -> *mut ::std::os::raw::c_void;
 }
 
-/*
+/**
  * VM allocated memory region
+ *
+ * Describes single contigious region of host memory allocated to VM
+ * A region can be mapped to guest physical memory, several mappings of the same region can exist
+ * (see memory_mapping)
  */
-#[derive(Debug)]
-pub struct memory_region 
-{
-    pub data: hv_uvaddr_t,
-    pub size: usize,
+pub struct memory_region {
+    pub data: hv_uvaddr_t,  // Host base address
+    pub size: usize,        // Region size in bytes
 }
 
 impl memory_region {
 
+    /**
+     * Read bytes from guest region into caller buffer
+     */
     pub fn read_bytes(&self, offset: usize, buf: &mut [u8]) -> usize {
         if offset >= self.size {
             return 0;
@@ -43,6 +50,9 @@ impl memory_region {
         toread
     }
 
+    /**
+     * Write bytes from caller buffer to guest memory region
+     */
     pub fn write_bytes(&self, offset: usize, buf: &[u8]) -> usize {
         if offset >= self.size {
             return 0;
@@ -62,29 +72,50 @@ impl memory_region {
     }
 }
 
-#[derive(Debug)]
+/**
+ * Guest memory mapping
+ * Describes a mapping of memory_region to specific guest physical address
+ */
 pub struct memory_mapping
 {
-    pub region: Arc<memory_region>,
-    pub base: hv_gpaddr_t,
-    pub flags: hv_memory_flags_t,
+    pub region: Arc<memory_region>,     // Mapped memory region
+    pub base: hv_gpaddr_t,              // Guest base physical address
+    pub flags: hv_memory_flags_t,       // Mapping flags (RWX)
 }
 
+/**
+ * IO handler trait
+ * Instances of this trait register as guest PIO handlers for specific io regions
+ */
 pub trait io_handler
 {
+    /**
+     * Read from IO port
+     */
     fn io_read(&self, addr: u16, size: u8) -> IoOperandType;
-    fn io_write(&self, addr: u16, data: IoOperandType);
+
+    /**
+     * Write to IO port
+     */
+    fn io_write(&self, vm: &mut Vm, addr: u16, data: IoOperandType);
 }
 
+/**
+ * Guest IO address space region
+ * Usually registered by emulated devices to handle guest IO requests
+ */
 pub struct io_region
 {
-    base: u16,
-    size: u8,
-    ops: Rc<io_handler>,
+    base: u16,              // IO port base
+    size: u8,               // IO size (1, 2, 4)
+    ops: Rc<io_handler>,    // Instance of io_handler for this region
 }
 
 /**
  * Interrupt controller trait
+ *
+ * Instances of this trait provide generic VM with an interface to assert IRQ lines and
+ * acknowledge delivered interrupts.
  */
 pub trait interrupt_controller
 {
@@ -101,8 +132,11 @@ pub trait interrupt_controller
     fn ack(&self, vec: u8);
 }
 
-/*
- * VM state 
+/**
+ * VM internal state for owning process
+ *
+ * HV framework internally creates a single global VM context for running process.
+ * This means that there is a single shared VM state per single process.
  *
  * TODO: drop trait to clean up and call hv_vm_destroy
  * TODO: a better lookup for memory mappings
